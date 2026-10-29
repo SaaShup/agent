@@ -7,7 +7,7 @@ const config = spawnSync('docker', ['compose', '-f', 'docker-compose.yml', '-f',
 if (config.error || config.status !== 0) {
   console.error(config.error?.message || config.stderr.trim()); process.exit(1);
 }
-const service = JSON.parse(config.stdout).services['netbox-docker-agent'];
+const service = JSON.parse(config.stdout).services['agent'];
 const filename = service.volumes.find(volume => volume.target === '/host-ssh/authorized_keys').source;
 try {
   const info = lstatSync(filename);

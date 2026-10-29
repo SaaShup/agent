@@ -2,7 +2,7 @@
 #
 #   dind   -> runs the chosen dockerd version, exposes its unix socket on a
 #             shared volume at /var/run/docker.sock
-#   agent  -> the netbox-docker-agent image, with that same volume mounted at
+#   agent  -> the agent image, with that same volume mounted at
 #             /var/run, so its hardcoded /var/run/docker.sock points at dind
 #   tester -> hurl, runs the existing suite against the agent
 #
@@ -49,7 +49,7 @@ services:
   agent:
     build:
       context: ../..
-    image: saashup/netbox-docker-agent:compat
+    image: saashup/agent:compat
     # The image runs as the unprivileged node user, but the dind socket is
     # owned by root. Override to root for tests so the agent can reach the socket.
     user: root

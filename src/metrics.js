@@ -4,7 +4,7 @@ export async function metrics(agent) {
   try { containers = await agent.docker.listContainers({ all: true }); } catch { up = 0; }
   let output = '';
   for (const state of ['running', 'exited', 'stopped']) {
-    const name = `netbox_docker_agent_container_${state}`;
+    const name = `agent_container_${state}`;
     output += `# HELP ${name} Show if a container is ${state === 'running' ? 'running' : 'exited'}\n# TYPE ${name} gauge\n`;
     for (const c of containers.filter(c => c.State === state)) {
       const health = /\((healthy|unhealthy|health: starting)\)/.exec(c.Status || '');
@@ -13,5 +13,5 @@ export async function metrics(agent) {
     }
     output += '\n';
   }
-  return output + `# HELP netbox_docker_agent_docker_daemon Show if the connection to the daemon is working\n# TYPE netbox_docker_agent_docker_daemon gauge\nnetbox_docker_agent_docker_daemon{socket="/var/run/docker.socket"} ${up}\n\n# HELP netbox_docker_agent_netbox_error_response Show the netbox error response counter\n# TYPE netbox_docker_agent_netbox_error_response counter\nnetbox_docker_agent_netbox_error_response{} ${agent.netbox.errors}\n`;
+  return output + `# HELP agent_docker_daemon Show if the connection to the daemon is working\n# TYPE agent_docker_daemon gauge\nagent_docker_daemon{socket="/var/run/docker.socket"} ${up}\n\n# HELP agent_netbox_error_response Show the netbox error response counter\n# TYPE agent_netbox_error_response counter\nagent_netbox_error_response{} ${agent.netbox.errors}\n`;
 }
