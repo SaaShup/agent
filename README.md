@@ -7,6 +7,8 @@
 [![repo size](https://img.shields.io/github/repo-size/SaaShup/agent)](https://github.com/SaaShup/agent)
 [![top language](https://img.shields.io/github/languages/top/SaaShup/agent)](https://github.com/SaaShup/agent)
 [![Tests](https://img.shields.io/github/actions/workflow/status/SaaShup/agent/pr_ci.yml?label=Tests&logo=github)](https://github.com/SaaShup/agent/actions/workflows/pr_ci.yml)
+[![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](package.json)
+[![image](https://img.shields.io/badge/image-ghcr.io%2Fsaashup%2Fagent-2496ed?logo=docker&logoColor=white)](https://github.com/SaaShup/agent/pkgs/container/agent)
 
 Manage a VM's host and it's Docker Engine from [Paashup](https://github.com/SaaShup/paashup) or the [NetBox Docker plugin](https://github.com/SaaShup/netbox-docker-plugin), with a local dashboard and API.
 
