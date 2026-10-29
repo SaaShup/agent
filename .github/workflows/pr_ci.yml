@@ -8,6 +8,11 @@ on:
     branches:
       - "main"
   workflow_dispatch:
+    inputs:
+      notify_tag:
+        description: Only notify the upgrade webhook for this existing image tag (e.g. v2.1.0)
+        required: false
+        type: string
 
 # Restrict the default GITHUB_TOKEN to read-only (CodeQL hardening).
 permissions:
@@ -15,6 +20,7 @@ permissions:
 
 jobs:
   unit:
+    if: ${{ !inputs.notify_tag }}
     name: Unit, integration and security
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +37,7 @@ jobs:
 
   # Read the supported dockerd versions from versions.txt into a matrix.
   versions:
+    if: ${{ !inputs.notify_tag }}
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set.outputs.matrix }}
@@ -69,6 +76,7 @@ jobs:
   # Playwright end-to-end tests for the web UI. The UI talks to the agent API,
   # so it is version-agnostic — run it once, against the first pinned version.
   ui:
+    if: ${{ !inputs.notify_tag }}
     name: Web UI (Playwright)
     runs-on: ubuntu-latest
     steps:
@@ -134,3 +142,37 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  upgrade-webhook:
+    name: Notify upgrade webhook
+    needs: publish
+    if: ${{ always() && (needs.publish.result == 'success' || inputs.notify_tag) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check webhook configuration
+        env:
+          WEBHOOK_DOMAIN: ${{ vars.WEBHOOK_DOMAIN }}
+          WEBHOOK_PATH: ${{ secrets.WEBHOOK_PATH }}
+        run: |
+          missing=""
+          [ -n "$WEBHOOK_DOMAIN" ] || missing="$missing WEBHOOK_DOMAIN"
+          [ -n "$WEBHOOK_PATH" ] || missing="$missing WEBHOOK_PATH"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s)/variable(s):$missing"
+            exit 1
+          fi
+
+      - name: Notify upgrade webhook
+        env:
+          WEBHOOK_URL: https://${{ vars.WEBHOOK_DOMAIN }}${{ secrets.WEBHOOK_PATH }}
+          IMAGE: ${{ vars.GHCR_IMAGE }}
+          TAG: ${{ inputs.notify_tag || github.ref_name }}
+        run: |
+          case "$IMAGE" in
+            ghcr.io/saashup/agent*) ;;
+            *) echo "::error::Image $IMAGE must start with ghcr.io/saashup/agent"; exit 1 ;;
+          esac
+          curl -fsS -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -cn --arg repo "$IMAGE" --arg tag "v${TAG#v}" '{repository:{repo_name:$repo},push_data:{tag:$tag}}')"
