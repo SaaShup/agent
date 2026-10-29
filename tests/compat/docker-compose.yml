@@ -78,7 +78,7 @@ services:
   # docker_version variable; the default below mirrors it for a manual
   # `docker compose run --rm tester`.
   tester:
-    image: ghcr.io/orange-opensource/hurl:latest
+    image: ghcr.io/orange-opensource/hurl:7.1.0
     profiles: ["test"]
     depends_on:
       agent:

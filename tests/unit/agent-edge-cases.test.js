@@ -340,6 +340,14 @@ test('unconfigured startup discovers local image registries without manager requ
   assert.equal(requests.some(r => r[0] !== 'journal'), false);
 });
 
+test('startup tolerates a manager registry response without results', async t => {
+  const { agent, store, docker, netbox } = setup(t);
+  docker.listImages = async () => [];
+  netbox.resource = async (method, type) => (type === 'registries' ? null : {});
+  agent.start(); await Promise.all(agent.jobs);
+  assert.deepEqual(store.registries, []);
+});
+
 test('prune tolerates empty reports and journals Engine failures even when the manager is offline', async t => {
   const { agent, docker, netbox, errors } = setup(t);
   docker.modem = { dial: (_, cb) => cb(null, {}) };
