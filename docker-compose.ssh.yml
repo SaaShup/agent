@@ -1,6 +1,6 @@
 # Included by npm run build. Bind only the host's existing authorized_keys file.
 services:
-  netbox-docker-agent:
+  agent:
     user: "${SSH_KEYS_UID:-1000}:${SSH_KEYS_GID:-1000}"
     environment:
       SSH_AUTHORIZED_KEYS_FILE: /host-ssh/authorized_keys

@@ -111,7 +111,7 @@ for v in "${versions[@]}"; do
     || { echo "!!! authenticated registry test failed for $v"; step_fail=1; }
 
   # Verify self-recreation is blocked for an agent running inside the tested daemon.
-  if docker image save saashup/netbox-docker-agent:compat | "${COMPOSE[@]}" exec -T dind docker image load >/dev/null; then
+  if docker image save saashup/agent:compat | "${COMPOSE[@]}" exec -T dind docker image load >/dev/null; then
     "${COMPOSE[@]}" exec -T agent node --input-type=module - < self-recreate-test.mjs \
       || { echo "!!! self recreation failed for $v"; step_fail=1; }
   else

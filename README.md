@@ -1,8 +1,8 @@
-# NetBox Docker Agent
+# Agent
 
-Manage a VM's Docker Engine from Paashup or the [NetBox Docker plugin](https://github.com/SaaShup/netbox-docker-plugin), with a local dashboard and API.
+Manage a VM's host and it's Docker Engine from [Paashup](https://github.com/SaaShup/paashup) or the [NetBox Docker plugin](https://github.com/SaaShup/netbox-docker-plugin), with a local dashboard and API.
 
-![Paashup connects to the NetBox Docker Agent inside a VM. The agent controls the local Docker Engine through its Unix socket and sends inventory, events, and journals back to Paashup.](docs/images/paashup-agent-architecture.svg)
+![Paashup connects to the Agent inside a VM. The agent controls the local Docker Engine through its Unix socket and sends inventory, events, and journals back to Paashup.](docs/images/paashup-agent-architecture.svg)
 
 ## User quick start
 

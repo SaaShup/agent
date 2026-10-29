@@ -8,9 +8,9 @@
 GET {{host}}/metrics
 HTTP 200
 [Asserts]
-body contains "# HELP netbox_docker_agent_docker_daemon"
-body contains "# TYPE netbox_docker_agent_docker_daemon gauge"
+body contains "# HELP agent_docker_daemon"
+body contains "# TYPE agent_docker_daemon gauge"
 # daemon reachable -> gauge value 1
-body matches /netbox_docker_agent_docker_daemon\{socket="[^"]+"\} 1/
-body contains "# TYPE netbox_docker_agent_netbox_error_response counter"
-body contains "netbox_docker_agent_netbox_error_response"
+body matches /agent_docker_daemon\{socket="[^"]+"\} 1/
+body contains "# TYPE agent_netbox_error_response counter"
+body contains "agent_netbox_error_response"

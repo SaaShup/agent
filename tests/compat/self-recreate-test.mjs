@@ -7,7 +7,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function wait(predicate,message){for(let i=0;i<60;i++){try{if(await predicate())return;}catch{}await sleep(500);}throw Error(message);}
 try{
  await docker.getContainer(name).remove({force:true}).catch(()=>{});
- const c=await docker.createContainer({name,Image:'saashup/netbox-docker-agent:compat',User:'0',ExposedPorts:{'1880/tcp':{}},HostConfig:{Binds:['/var/run/docker.sock:/var/run/docker.sock'],Mounts:[{Type:'volume',Source:volume,Target:'/data'}],PortBindings:{'1880/tcp':[{HostPort:'1881'}]}}});
+ const c=await docker.createContainer({name,Image:'saashup/agent:compat',User:'0',ExposedPorts:{'1880/tcp':{}},HostConfig:{Binds:['/var/run/docker.sock:/var/run/docker.sock'],Mounts:[{Type:'volume',Source:volume,Target:'/data'}],PortBindings:{'1880/tcp':[{HostPort:'1881'}]}}});
  await c.start();
  await wait(async()=>(await fetch(base+'/info',{headers:{authorization:auth}})).ok,'nested agent did not start');
  const original=await c.inspect();

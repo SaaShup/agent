@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="title description">
   <title id="title">Paashup connects to the agent running on a VM</title>
-  <desc id="description">Paashup sends authenticated API requests to the NetBox Docker Agent on port 1880 inside a virtual machine. The agent accesses the local Docker Engine through /var/run/docker.sock. Docker manages containers, images, networks, and volumes. The agent sends inventory, events, and journals back to the manager's NetBox API.</desc>
+  <desc id="description">Paashup sends authenticated API requests to the Agent on port 1880 inside a virtual machine. The agent accesses the local Docker Engine through /var/run/docker.sock. Docker manages containers, images, networks, and volumes. The agent sends inventory, events, and journals back to the manager's NetBox API.</desc>
   <defs>
     <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
       <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -34,7 +34,7 @@
 
     <rect x="674" y="224" width="454" height="100" rx="14" fill="#fff" stroke="#bfdbfe"/>
     <circle cx="706" cy="255" r="6" fill="#2563eb"/>
-    <text x="724" y="262" fill="#0f172a" font-size="21" font-weight="700">NetBox Docker Agent</text>
+    <text x="724" y="262" fill="#0f172a" font-size="21" font-weight="700">Agent</text>
     <text x="698" y="293" fill="#475569" font-size="14">Agent container · authenticated API · port 1880</text>
 
     <path d="M304 259H672" fill="none" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-blue)"/>

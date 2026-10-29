@@ -4,7 +4,7 @@ import { containerRecord, createOptions, imageRecord } from './mapping.js';
 import { pruneDocker, pruneOptions } from './prune.js';
 export class Agent {
   constructor(docker, store, netbox, version = '2.0.0') { Object.assign(this, { docker, store, netbox, version }); this.jobs = new Set(); this.pruneBlockers = new Set(); this.chains = new Map(); this.stopped = false; this.activeOperations = 0; }
-  log(error) { console.error(JSON.stringify({ name: 'netbox-docker-agent', level: 'error', version: this.version, msg: error.message })); }
+  log(error) { console.error(JSON.stringify({ name: 'agent', level: 'error', version: this.version, msg: error.message })); }
   enqueue(key, work, { blocksPrune = true } = {}) {
     const job = (this.chains.get(key) || Promise.resolve()).then(work).catch(error => this.log(error)).finally(() => { this.jobs.delete(job); this.pruneBlockers.delete(job); if (this.chains.get(key) === job) this.chains.delete(key); });
     if (blocksPrune) this.pruneBlockers.add(job);

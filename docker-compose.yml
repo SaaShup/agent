@@ -1,7 +1,7 @@
 services:
-  netbox-docker-agent:
+  agent:
     build: .
-    image: saashup/netbox-docker-agent:2
+    image: saashup/agent:2
     restart: unless-stopped
     init: true
     ports:
@@ -15,11 +15,11 @@ services:
     group_add:
       - "${DOCKER_GID:-0}"
     volumes:
-      - netbox-docker-agent:/data
+      - agent:/data
       - /var/run/docker.sock:/var/run/docker.sock
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
 volumes:
-  netbox-docker-agent:
+  agent:

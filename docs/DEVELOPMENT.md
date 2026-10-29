@@ -69,7 +69,7 @@ The compatibility harness starts isolated privileged Docker-in-Docker daemons, a
 ## Publishing an image
 
 Pushing a Git tag runs the CI workflow against that tagged commit. The image is
-published to `ghcr.io/saashup/netbox-docker-agent:<tag>` only after unit,
+published to `ghcr.io/saashup/agent:<tag>` only after unit,
 integration, security and dependency audit checks, every supported Docker
 compatibility version, and the browser tests succeed. The image targets
 `linux/amd64`, matching the CI runners. Pull requests and manual workflow runs
@@ -81,7 +81,7 @@ For example, after committing the release changes:
 git tag v2.0.0
 git push origin v2.0.0
 # After the workflow succeeds:
-docker pull ghcr.io/saashup/netbox-docker-agent:v2.0.0
+docker pull ghcr.io/saashup/agent:v2.0.0
 ```
 
 The workflow authenticates with GitHub's automatic `GITHUB_TOKEN`; only the

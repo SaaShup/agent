@@ -7,7 +7,7 @@ import bcrypt from '/app/node_modules/bcryptjs/index.js';
 import { dockerClient, collect, demux } from '/app/src/docker.js';
 
 const docker = dockerClient();
-const image = 'saashup/netbox-docker-agent:compat';
+const image = 'saashup/agent:compat';
 const suffix = `${Date.now()}-${process.pid}`;
 const prefix = `compat-registry-resilience-${suffix}`;
 const labels = { 'compat.registry-resilience': suffix };
