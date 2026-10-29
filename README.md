@@ -1,5 +1,13 @@
 # Agent
 
+[![version](https://img.shields.io/github/v/tag/SaaShup/agent?label=version)](https://github.com/SaaShup/agent/tags)
+[![node](https://img.shields.io/badge/node-24--alpine-6cc24a)](Dockerfile)
+[![license](https://img.shields.io/github/license/SaaShup/agent)](LICENSE)
+[![last commit](https://img.shields.io/github/last-commit/SaaShup/agent)](https://github.com/SaaShup/agent/commits/main)
+[![repo size](https://img.shields.io/github/repo-size/SaaShup/agent)](https://github.com/SaaShup/agent)
+[![top language](https://img.shields.io/github/languages/top/SaaShup/agent)](https://github.com/SaaShup/agent)
+[![Tests](https://img.shields.io/github/actions/workflow/status/SaaShup/agent/pr_ci.yml?label=Tests&logo=github)](https://github.com/SaaShup/agent/actions/workflows/pr_ci.yml)
+
 Manage a VM's host and it's Docker Engine from [Paashup](https://github.com/SaaShup/paashup) or the [NetBox Docker plugin](https://github.com/SaaShup/netbox-docker-plugin), with a local dashboard and API.
 
 ![Paashup connects to the Agent inside a VM. The agent controls the local Docker Engine through its Unix socket and sends inventory, events, and journals back to Paashup.](docs/images/paashup-agent-architecture.svg)
