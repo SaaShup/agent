@@ -14,6 +14,10 @@ The runner uses the official Playwright image matching the pinned test dependenc
 
 Failure traces and screenshots are saved in `test-results/`. Use `npx playwright show-trace <trace.zip>` to investigate. Browser coverage currently targets Chromium; other browsers are not claimed as validated.
 
+Container configuration tests in `10-container-configuration.spec.ts` check that
+the creation editor defaults to unlimited memory/CPU, that the recreation editor
+loads existing limits, and that edited limits are submitted through both APIs.
+
 Host SSH key UI scenarios are in `12-host-ssh-keys.spec.ts`. They stub the SSH
 endpoint by default. The real mounted-file scenario requires `SSH_KEYS_E2E=1` and an
 isolated agent mounting a temporary host file; never point this scenario at

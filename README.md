@@ -29,6 +29,8 @@ Before exposing the agent, set `API_USERNAME`, `API_PASSWORD`, and `HEALTHCHECK_
 
 Use **Agent settings** to connect to Paashup/NetBox, or register the endpoint from the plugin. The dashboard also works standalone. Registry lists stay synchronized with local images.
 
+Container creation and recreation accept optional `memory_limit` (bytes) and `cpu_limit` (CPU cores, including fractions). Both default to unlimited when omitted or set to `0`. See [resource limits and API examples](docs/OPERATIONS.md#container-memory-and-cpu-limits).
+
 The agent stores configuration in the persistent `/data` volume. Follow logs or stop it with:
 
 ```sh

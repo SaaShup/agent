@@ -48,6 +48,51 @@ async function setup(t, deleteStatus = 200) {
  const api=async(route,method='GET',data,headers={})=>fetch(base+route,{method,headers:{authorization:auth,...(data?{'content-type':'application/json'}:{}),...headers},body:data?JSON.stringify(data):undefined});
  return{agent,store,docker,netbox,api,base,calls,callbacks,engine,server,getEvents:()=>events};
 }
+test('HTTP create and recreate apply optional resource limits without changing unlimited defaults', async t => {
+ const { api, agent, calls } = await setup(t);
+ for (const method of ['POST', 'PUT']) {
+  for (const limits of [{}, { memory_limit: 536870912 }, { cpu_limit: 0.5 }, { memory_limit: 268435456, cpu_limit: 1.5 }, { memory_limit: 0, cpu_limit: 0 }]) {
+   const before = calls.length;
+   const data = { id: 7, name: 'demo', state: 'none', ContainerID: 'abc', operation: 'recreate', image: { name: 'nginx', version: 'alpine', ImageID: 'sha256:image' }, ...limits };
+   assert.equal((await api('/api/engine/containers', method, { data })).status, 202);
+   await Promise.all(agent.jobs);
+   const created = calls.slice(before).find(x => x.path === '/containers/create');
+   assert.ok(created, `${method}: Docker creation must succeed`);
+   assert.equal(created.body.HostConfig.Memory, limits.memory_limit);
+   assert.equal(created.body.HostConfig.NanoCpus, limits.cpu_limit === undefined ? undefined : limits.cpu_limit * 1e9);
+  }
+ }
+});
+test('invalid HTTP limits return 400 before enqueueing or touching the original container', async t => {
+ const { api, agent, calls } = await setup(t);
+ for (const method of ['POST', 'PUT']) {
+  for (const limits of [{ memory_limit: -1 }, { memory_limit: '512m' }, { memory_limit: 1024 }, { cpu_limit: -1 }, { cpu_limit: '0.5' }, { cpu_limit: null }]) {
+   const before = calls.length;
+   const response = await api('/api/engine/containers', method, { data: { id: 7, name: 'demo', state: 'none', ContainerID: 'abc', operation: 'recreate', ...limits } });
+   assert.equal(response.status, 400);
+   assert.match((await response.json()).message, /memory_limit|cpu_limit/);
+   assert.equal(agent.jobs.size, 0);
+   assert.equal(calls.length, before);
+  }
+ }
+ await assert.rejects(agent.write('PUT', 'containers', { ContainerID: 'abc', operation: 'recreate', memory_limit: -1 }), { statusCode: 400 });
+ await assert.rejects(agent.write('POST', 'containers', { name: 'demo', state: 'none', cpu_limit: -1 }), { statusCode: 400 });
+ assert.equal(calls.length, 0);
+ assert.equal(agent.activeOperations, 0);
+});
+test('API references agree and document optional resource limit units and defaults', async t => {
+ const { api } = await setup(t);
+ const spec = await (await api('/openapi.json')).json();
+ assert.deepEqual(await (await api('/openapi')).json(), spec);
+ for (const name of ['PostApiEngineContainers', 'PutApiEngineContainers']) {
+  const data = spec.components.schemas[name].properties.data;
+  for (const field of ['memory_limit', 'cpu_limit']) {
+   assert.equal(data.properties[field].default, 0);
+   assert.ok(!data.required?.includes(field));
+   assert.match(data.properties[field].description, /unlimited/);
+  }
+ }
+});
 test('standalone registry discovery refreshes local images through the HTTP route', async t => {
  const { api, agent, store, callbacks, docker } = await setup(t);
  store.config.netbox_url = '';

@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { authenticated, sameOrigin } from './auth.js';
 import { collect } from './docker.js';
+import { resourceLimits } from './mapping.js';
 import { metrics } from './metrics.js';
 import { terminals } from './terminal.js';
 import { hostSshKeys } from './host-ssh.js';
@@ -92,6 +93,7 @@ export function createServer(agent) {
           if (value && !['http:', 'https:'].includes(new URL(value).protocol)) return send(res, 400, { message: 'Management URL must use HTTP or HTTPS' });
           Object.assign(agent.store.config, { netbox_url: value, id: url.searchParams.get('id') || '', netbox_token: url.searchParams.get('token') || '', endpoint: url.searchParams.get('endpoint') || '' }); await agent.store.save();
         }
+        if (type === 'containers' && (req.method === 'POST' || (req.method === 'PUT' && input.data?.operation === 'recreate'))) resourceLimits(input.data);
         if (req.method === 'PUT' && type === 'containers' && input.data?.operation === 'recreate') await agent.recreationTarget(input.data.ContainerID);
         // Preserve the original acknowledgment payload: body for writes, {} for reads.
         send(res, 202, input);

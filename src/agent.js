@@ -144,13 +144,13 @@ export class Agent {
         let c = this.docker.getContainer(d.ContainerID);
         await this.netbox.journal('container', d.id, 'info', `operating ${d.operation}: pending`);
         if (d.operation === 'recreate') {
+          const options = createOptions(d, true);
           const original = await this.recreationTarget(d.ContainerID);
           c = this.docker.getContainer(original.Id);
           const backup = `${d.name}-${Date.now()}`;
           if (original.State.Running) await c.stop();
           await c.rename({ name: backup }); let replacement;
           try {
-            const options = createOptions(d, true);
             if (this.recreateRuntime) { Object.assign(options, this.recreateRuntime.config); Object.assign(options.HostConfig, this.recreateRuntime.hostConfig); }
             replacement = await this.docker.createContainer(options);
             for (const n of (d.network_settings || []).slice(1)) await this.docker.getNetwork(n.network.NetworkID || n.network.name).connect({ Container: replacement.id });

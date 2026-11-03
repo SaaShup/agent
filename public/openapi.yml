@@ -178,7 +178,7 @@
           "agent containers"
         ],
         "requestBody": {
-          "description": "create Container",
+          "description": "Create a container from a local image. Optional data.memory_limit is in bytes and data.cpu_limit is in CPU cores; omitted or 0 means unlimited.",
           "required": true,
           "content": {
             "application/json": {
@@ -192,7 +192,9 @@
                   "image": {
                     "name": "nginx",
                     "version": "alpine"
-                  }
+                  },
+                  "memory_limit": 0,
+                  "cpu_limit": 0
                 }
               }
             }
@@ -208,6 +210,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid resource limits: memory_limit must be 0 or a safe integer of at least 6 MiB in bytes; cpu_limit must be 0 or a positive numeric CPU core count representable in safe integer nanocpus."
           }
         },
         "summary": "Create a container from a local image",
@@ -218,7 +223,7 @@
           "agent containers"
         ],
         "requestBody": {
-          "description": "Container operation",
+          "description": "Operate on a container. To apply memory/CPU limits, use operation recreate and send the complete desired supported configuration, with memory_limit in bytes and cpu_limit in CPU cores. Omitted or 0 means unlimited. Other operations do not apply resource limits.",
           "required": true,
           "content": {
             "application/json": {
@@ -248,6 +253,9 @@
           },
           "403": {
             "description": "The agent cannot recreate its own container"
+          },
+          "400": {
+            "description": "Invalid resource limits: memory_limit must be 0 or a safe integer of at least 6 MiB in bytes; cpu_limit must be 0 or a positive numeric CPU core count representable in safe integer nanocpus."
           }
         },
         "summary": "Operate or recreate a container",
@@ -2188,6 +2196,33 @@
                 "enum": [
                   "none"
                 ]
+              },
+              "memory_limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "default": 0,
+                "description": "Optional memory limit in bytes. Omitted or 0 means unlimited. Positive values must be safe integers of at least 6291456 bytes (6 MiB). Applied on creation or recreation; operation none only saves restart policy/name.",
+                "example": 536870912,
+                "oneOf": [
+                  {
+                    "enum": [
+                      0
+                    ]
+                  },
+                  {
+                    "minimum": 6291456
+                  }
+                ]
+              },
+              "cpu_limit": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 9007199.25474099,
+                "default": 0,
+                "description": "Optional CPU limit in CPU cores (fractional values supported, e.g. 0.5). Omitted or 0 means unlimited. Converted to Docker NanoCpus by rounding cores multiplied by 1000000000; positive values must produce a positive safe integer. Applied on creation or recreation.",
+                "example": 1.5
               }
             }
           }
@@ -2374,6 +2409,33 @@
                     }
                   }
                 }
+              },
+              "memory_limit": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "default": 0,
+                "description": "Optional memory limit in bytes. Omitted or 0 means unlimited. Positive values must be safe integers of at least 6291456 bytes (6 MiB). Applied on creation or recreation; operation none only saves restart policy/name.",
+                "example": 536870912,
+                "oneOf": [
+                  {
+                    "enum": [
+                      0
+                    ]
+                  },
+                  {
+                    "minimum": 6291456
+                  }
+                ]
+              },
+              "cpu_limit": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 9007199.25474099,
+                "default": 0,
+                "description": "Optional CPU limit in CPU cores (fractional values supported, e.g. 0.5). Omitted or 0 means unlimited. Converted to Docker NanoCpus by rounding cores multiplied by 1000000000; positive values must produce a positive safe integer. Applied on creation or recreation.",
+                "example": 1.5
               }
             }
           }
