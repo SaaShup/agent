@@ -22,6 +22,7 @@ Baseline: commit `96d321b7f967517cd1f966ba4e0b332380f6977d`, original `flows.jso
 | PUT containers: start, stop, restart, kill, rename | `Agent.write` | Container-operation/lifecycle Hurl, Playwright actions |
 | PUT containers: pause/unpause, update restart policy and optional rename (`none`) | `Agent.write` | Recreation Hurl, operation integration |
 | PUT containers: recreate, backup rename, rollback on failed replacement | `Agent.write`, `createOptions` | Recreation Hurl; fixture failure/rollback test |
+| Optional memory and CPU limits on creation/recreation; omitted or zero remains unlimited | `resourceLimits`, `createOptions`, inspection/editor mappings | Unit/HTTP cases; Docker integrity checks for independent limits, resets and rollback; browser editor tests |
 | Recreate fields: image ID, hostname, env, labels, cmd, cap_add/drop, PID mode, extra_hosts, secOpt | `createOptions` | Mapping unit; recreation Hurl; real host PID mapping in isolated dind |
 | Recreate fields: port bindings/exposures, devices, named mounts, binds/read-only | `createOptions` | Mapping unit; recreation Hurl; real hardware device passthrough needs host verification |
 | Recreate fields: first network and additional attachments; host network mode | `createOptions`, network connect loop | Mapping unit; recreation Hurl; real host-network Hurl lifecycle |

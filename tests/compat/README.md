@@ -33,6 +33,12 @@ stopped. Each checks the original ID/name/state and data, and verifies that no
 failed replacement or backup container remains. Completion is correlated with
 the agent's success/failure journal, rather than inferred from an early poll.
 
+It also verifies optional `memory_limit` (bytes) and `cpu_limit` (CPU cores) on
+creation and recreation: omitted/zero defaults, each limit independently,
+combined limits, changes and removal. Inspect assertions check Docker's effective
+`Memory`/`NanoCpus` values. Recreation retains volume contents, and failed
+replacements preserve the original container's resource limits.
+
 Prune coverage includes the Hurl lifecycle in `tests/hurl/prune.hurl` and `prune-test.mjs`. It verifies deletion of stopped containers, anonymous volumes, explicitly selected unused named volumes, and unused networks; retention of running containers and their image/volume/network references; actual dangling and tagged image deletion; and pruning a populated Engine BuildKit cache. It also checks both JSON body forms and rejects unauthenticated, cross-origin, unsupported-method, and invalid-scope requests. These tests run against every listed Engine version. They never prune the host daemon.
 
 Any failed setup or assertion makes the runner exit nonzero. The final summary reports each version. Tests only create resources within the disposable daemon; cleanup removes the test project's volumes and containers. The mock tests HTTP contracts, token headers and callback payloads, but does not validate real NetBox models, permissions or webhook configuration.

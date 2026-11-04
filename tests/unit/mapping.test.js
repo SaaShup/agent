@@ -1,9 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { containerRecord, createOptions, imageRecord } from '../../src/mapping.js';
+import { containerRecord, createOptions, imageRecord, resourceLimits } from '../../src/mapping.js';
 import { usage, demux } from '../../src/docker.js';
 import { metrics } from '../../src/metrics.js';
 const c = { Id:'abc',Name:'/demo',Image:'sha256:image',Config:{Hostname:'host',Env:['A=x=y','EMPTY='],Labels:{'a"':'<script>'},Cmd:['sh']},State:{Status:'exited',ExitCode:3},HostConfig:{CapAdd:['CAP_NET_ADMIN'],RestartPolicy:{Name:''},PortBindings:{'80/tcp':[{HostPort:'8080'}]},LogConfig:{Type:'local',Config:{'max-size':'10m'}},Devices:[{PathInContainer:'/dev/a',PathOnHost:'/dev/b'}],Sysctls:{'net.ipv4.ip_forward':'1'}},NetworkSettings:{Networks:{bridge:{}}},Mounts:[{Type:'volume',Name:'data',Destination:'/data',RW:false},{Type:'bind',Source:'/host',Destination:'/mount',RW:true}] };
+test('optional resource limits support unlimited defaults, independent limits and inventory round trips', () => {
+ assert.deepEqual(resourceLimits(), {});
+ assert.deepEqual(resourceLimits(null), {});
+ for (const full of [false, true]) {
+  const options = d => createOptions({ name: 'demo', image: { name: 'alpine' }, ...d }, full).HostConfig;
+  assert.equal(Object.hasOwn(options({}), 'Memory'), false);
+  assert.equal(Object.hasOwn(options({}), 'NanoCpus'), false);
+  assert.equal(options({ memory_limit: 0, cpu_limit: 0 }).Memory, 0);
+  assert.equal(options({ memory_limit: 0, cpu_limit: 0 }).NanoCpus, 0);
+  assert.equal(options({ memory_limit: 6291456 }).Memory, 6291456);
+  assert.equal(Object.hasOwn(options({ memory_limit: 6291456 }), 'NanoCpus'), false);
+  assert.equal(options({ cpu_limit: 0.5 }).NanoCpus, 500000000);
+  assert.equal(Object.hasOwn(options({ cpu_limit: 0.5 }), 'Memory'), false);
+  const record = containerRecord({ HostConfig: { Memory: 536870912, NanoCpus: 1500000000 } }, 1);
+  assert.equal(record.memory_limit, 536870912);
+  assert.equal(record.cpu_limit, 1.5);
+  assert.equal(options(record).Memory, 536870912);
+  assert.equal(options(record).NanoCpus, 1500000000);
+ }
+ const unlimited = containerRecord({}, 1);
+ assert.equal(unlimited.memory_limit, 0);
+ assert.equal(unlimited.cpu_limit, 0);
+ assert.equal(resourceLimits({ cpu_limit: 0.07 }).NanoCpus, 70000000);
+});
+test('invalid limits reject nonnumeric, negative, undersized and unsafe values', () => {
+ for (const memory_limit of [-1, 1, 6291455, 6291456.5, '536870912', null, true, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+  assert.throws(() => resourceLimits({ memory_limit }), { statusCode: 400, message: /memory_limit/ });
+ }
+ for (const cpu_limit of [-1, '1', null, true, {}, NaN, Infinity, 1e10, 1e-12]) {
+  assert.throws(() => resourceLimits({ cpu_limit }), { statusCode: 400, message: /cpu_limit/ });
+ }
+});
 test('inspection mapping preserves nested plugin fields and values',()=>{
  const r=containerRecord(c,5,7);assert.equal(r.id,7);assert.equal(r.host,5);assert.equal(r.name,'demo');assert.equal(r.env[0].value,'x=y');assert.equal(r.env[1].value,'');assert.deepEqual(r.cap_add,['NET_ADMIN']);assert.equal(r.restart_policy,'no');assert.deepEqual(r.ports,[{public_port:'8080',private_port:'80',type:'tcp'}]);assert.equal(r.mounts[0].read_only,true);assert.equal(r.binds[0].read_only,false);assert.equal(r.devices[0].host_path,'/dev/b');assert.equal(r.log_driver_options[0].option_name,'max-size');assert.deepEqual(r.sysctls,[{key:'net.ipv4.ip_forward',value:'1'}]);assert.equal(r.image.ImageID,'sha256:image');assert.equal(r.exitCode,3);
 });

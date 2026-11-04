@@ -12,6 +12,7 @@ const image = 'alpine:3.21';
 const fixtureLabel = { 'compat.recreate-integrity': suffix };
 const marker = 'persistent fixture\n';
 let operationID = Date.now() % 1000000000;
+const createdNames = [];
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function waitFor(check, message) {
@@ -23,10 +24,10 @@ async function waitFor(check, message) {
   throw Error(message);
 }
 
-async function operation(data, kind) {
+async function operation(data, kind, method = 'PUT') {
   const id = ++operationID;
   const response = await fetch(agentURL + '/api/engine/containers', {
-    method: 'PUT', headers: { authorization, 'content-type': 'application/json' },
+    method, headers: { authorization, 'content-type': 'application/json' },
     body: JSON.stringify({ data: { ...data, id, operation: 'recreate' } }),
   });
   assert.equal(response.status, 202, await response.text());
@@ -41,7 +42,7 @@ async function operation(data, kind) {
     const { requests } = await result.json();
     return requests.some(request => {
       const journal = JSON.parse(request.body);
-      return journal.assigned_object_id === id && journal.kind === kind && journal.comments.startsWith('operation recreate:');
+      return journal.assigned_object_id === id && journal.kind === kind && (method === 'POST' ? journal.comments === 'container created' : journal.comments.startsWith('operation recreate:'));
     });
   }, `Missing ${kind} journal for recreation ${id}`);
 }
@@ -64,6 +65,16 @@ try {
     const failure = messages?.find(message => message.error);
     if (error || failure) reject(error || Error(failure.error)); else resolve();
   }));
+  for (const limits of [{}, { memory_limit: 0, cpu_limit: 0 }, { memory_limit: 67108864 }, { cpu_limit: 0.25 }, { memory_limit: 134217728, cpu_limit: 0.5 }]) {
+    const createName = `${name}-create-${createdNames.length}`;
+    createdNames.push(createName);
+    await operation({ name: createName, state: 'none', image: { name: 'alpine', version: '3.21' }, ...limits }, 'success', 'POST');
+    const created = await docker.getContainer(createName).inspect();
+    assert.equal(created.HostConfig.Memory, limits.memory_limit || 0);
+    assert.equal(created.HostConfig.NanoCpus, (limits.cpu_limit || 0) * 1e9);
+    await docker.getContainer(createName).remove();
+  }
+  console.log('PASS create resource limits: omitted, zero, memory-only, CPU-only and combined limits');
   await docker.createVolume({ Name: volume });
   const original = await docker.createContainer({
     name, Image: image, Cmd: ['sleep', '3600'], Labels: fixtureLabel,
@@ -86,6 +97,8 @@ try {
   const replacement = await docker.getContainer(name).inspect();
   assert.notEqual(replacement.Id, before.Id);
   assert.equal(replacement.State.Running, true);
+  assert.equal(replacement.HostConfig.Memory, 0);
+  assert.equal(replacement.HostConfig.NanoCpus, 0);
   await assert.rejects(original.inspect(), { statusCode: 404 });
   assert.ok(replacement.Config.Env.includes('SAASHUP_OWNER=owner@example.test'));
   assert.ok(replacement.Config.Env.includes("VALUE=a=b'quoted"));
@@ -93,6 +106,27 @@ try {
   assert.equal(replacement.Mounts.find(mount => mount.Destination === '/data').Name, volume);
   assert.equal(await readVolume(), marker);
   console.log('PASS recreate integrity: replacement ID, owner, labels, and existing named-volume contents retained');
+
+  // Limits are optional and can be applied, changed independently, and removed.
+  for (const limits of [
+    { memory_limit: 134217728, cpu_limit: 0.5 },
+    { memory_limit: 67108864 },
+    { cpu_limit: 0.25 },
+    { memory_limit: 0, cpu_limit: 0 },
+  ]) {
+    const current = await docker.getContainer(name).inspect();
+    await operation({ ...desired, ContainerID: current.Id, ...limits }, 'success');
+    const limited = await docker.getContainer(name).inspect();
+    assert.notEqual(limited.Id, current.Id);
+    assert.equal(limited.HostConfig.Memory, limits.memory_limit || 0);
+    assert.equal(limited.HostConfig.NanoCpus, (limits.cpu_limit || 0) * 1e9);
+    assert.equal(limited.State.Running, true);
+    assert.equal(await readVolume(), marker);
+  }
+  // Keep limits on the original while failed replacements exercise rollback.
+  const current = await docker.getContainer(name).inspect();
+  await operation({ ...desired, ContainerID: current.Id, memory_limit: 67108864, cpu_limit: 0.25 }, 'success');
+  console.log('PASS resource limits: apply, independent limits, unlimited reset and persistent data');
 
   for (const running of [true, false]) for (const failure of ['network', 'start']) {
     const container = docker.getContainer(name);
@@ -107,12 +141,15 @@ try {
     assert.equal(restored.Id, current.Id);
     assert.equal(restored.Name, '/' + name);
     assert.equal(restored.State.Running, running);
+    assert.equal(restored.HostConfig.Memory, 67108864);
+    assert.equal(restored.HostConfig.NanoCpus, 250000000);
     assert.equal(await readVolume(), marker);
     const remaining = await docker.listContainers({ all: true, filters: { label: [`compat.recreate-integrity=${suffix}`] } });
     assert.deepEqual(remaining.map(item => item.Id), [current.Id], 'failed replacements and backup names must not remain');
     console.log(`PASS recreate rollback: ${failure} failure restores ${running ? 'running' : 'stopped'} original and its data`);
   }
 } finally {
+  for (const createName of createdNames) await docker.getContainer(createName).remove({ force: true }).catch(error => { if (error.statusCode !== 404) throw error; });
   const containers = await docker.listContainers({ all: true, filters: { label: [`compat.recreate-integrity=${suffix}`] } });
   for (const container of containers) await docker.getContainer(container.Id).remove({ force: true });
   await docker.getVolume(volume).remove().catch(error => { if (error.statusCode !== 404) throw error; });

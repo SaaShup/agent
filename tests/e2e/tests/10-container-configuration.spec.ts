@@ -32,6 +32,22 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/#containers');
 });
 
+test('creation editor defaults to unlimited resources and accepts optional limits', async ({ page }) => {
+  await page.locator('button[data-create="containers"]').click();
+  const editor = page.locator('#resource-data');
+  const data = JSON.parse(await editor.inputValue());
+  expect(data.memory_limit).toBe(0);
+  expect(data.cpu_limit).toBe(0);
+  data.memory_limit = 536870912;
+  data.cpu_limit = 0.5;
+  await editor.fill(JSON.stringify(data));
+  await page.route('**/api/engine/containers', route => route.fulfill({ status: 202, json: { data: route.request().postDataJSON().data } }));
+  const request = page.waitForRequest(r => r.url().endsWith('/api/engine/containers') && r.method() === 'POST');
+  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+  expect((await request).postDataJSON().data).toMatchObject({ memory_limit: 536870912, cpu_limit: 0.5 });
+  await expect(page.locator('#resource-dialog')).not.toBeVisible();
+});
+
 test('configuration groups show actual settings and render metadata safely', async ({ page }) => {
   const card = page.locator('#containers-list .card');
   const configuration = card.getByRole('button', { name: 'Configuration', exact: true });
@@ -64,6 +80,10 @@ test('configuration editor submits changed supported settings through recreation
   expect(data.ContainerID).toBe(container.Id);
   expect(data.mounts[0].volume.name).toBe('app-data');
   expect(data.binds[0].read_only).toBe(true);
+  expect(data.memory_limit).toBe(536870912);
+  expect(data.cpu_limit).toBe(1.5);
+  data.memory_limit = 268435456;
+  data.cpu_limit = 0.5;
   expect(data.env.find((e: { var_name: string }) => e.var_name === 'WITH_EQUALS').value).toBe('a=b');
   data.env.find((e: { var_name: string }) => e.var_name === 'MODE').value = 'staging';
   await editor.fill(JSON.stringify(data));
@@ -72,6 +92,7 @@ test('configuration editor submits changed supported settings through recreation
   await page.getByRole('button', { name: 'Submit', exact: true }).click();
   expect((await request).postDataJSON().data).toMatchObject({
     ContainerID: 'config-demo', operation: 'recreate',
+    memory_limit: 268435456, cpu_limit: 0.5,
     env: expect.arrayContaining([{ var_name: 'MODE', value: 'staging' }]),
   });
   await expect(page.locator('#resource-dialog')).not.toBeVisible();
