@@ -11,6 +11,7 @@ import { WebSocket } from 'ws';
 import { Store } from '../../src/config.js';
 import { Netbox } from '../../src/netbox.js';
 import { Agent } from '../../src/agent.js';
+import packageInfo from '../../package.json' with { type: 'json' };
 import { createServer } from '../../src/server.js';
 const auth='Basic '+Buffer.from('admin:saashup').toString('base64');
 const fixture={Id:'abc',Name:'/demo',Image:'sha256:image',Config:{Image:'nginx:alpine',Env:['X=1']},State:{Status:'created',ExitCode:0},HostConfig:{RestartPolicy:{Name:'no'},LogConfig:{Type:'json-file',Config:{}}},NetworkSettings:{Networks:{bridge:{}}},Mounts:[]};
@@ -133,7 +134,7 @@ test('asynchronous operations acknowledge and report NetBox callbacks, journals,
 test('all container operations and resource lifecycles reach Engine endpoints',async t=>{const {agent,calls}=await setup(t);for(const operation of ['start','stop','restart','kill','pause','unpause','rename','none'])await agent.write('PUT','containers',{id:7,ContainerID:'abc',name:operation==='rename'?'renamed':'demo',operation,restart_policy:'always'});for(const operation of ['start','stop','restart','kill','pause','unpause','rename','update'])assert.ok(calls.some(x=>x.path===`/containers/abc/${operation}`),operation);await agent.write('POST','networks',{state:'creating',name:'n',driver:'bridge'});await agent.write('POST','volumes',{name:'vv',driver:'local'});await agent.write('POST','images',{id:1,name:'nginx',version:'alpine',size:0,ImageID:null});for(const [type,d] of [['containers',{ContainerID:'abc'}],['images',{ImageID:'sha256:image'}],['volumes',{name:'vv'}],['networks',{name:'n'}]])await agent.write('DELETE',type,d);assert.ok(calls.some(x=>x.path==='/images/create'));assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/images/sha256:image'));});
 test('container recreation preserves settings and rolls back a failed replacement',async t=>{const {agent,calls,docker}=await setup(t);await agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'demo',operation:'recreate',image:{ImageID:'sha256:image'},env:[{var_name:'A',value:"a'b"}],network_settings:[]});const created=calls.find(x=>x.path==='/containers/create');assert.deepEqual(created.body.Env,["A=a'b"]);assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/containers/abc'));docker.createContainer=async()=>{throw Error('create failed')};await assert.rejects(agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'abc',operation:'recreate',image:{ImageID:'sha256:image'}}),/create failed/);assert.ok(calls.filter(x=>x.path==='/containers/abc/rename').some(x=>x.query==='?name=demo'));});
 test('exec, logs and stats retain the legacy response envelopes',async t=>{const {api}=await setup(t);const result=await(await api('/api/engine/containers/abc/exec','PUT',{cmd:['echo','hello']})).json();assert.ok(result.stdout.includes('hello'));assert.equal(await(await api('/api/engine/containers/abc/logs')).text(),'hello\n');assert.equal((await(await api('/api/engine/containers/abc/stats')).json()).cpu_stats.cpu_usage.total_usage,5);assert.equal((await api('/api/engine/containers/abc/exec','PUT',{cmd:'whoami'})).status,400);});
-test('NetBox inventory synchronization covers every resource and host metadata',async t=>{const {agent,callbacks}=await setup(t);for(const type of ['endpoint','networks','volumes','images','containers','registries'])await agent.sync(type);assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/hosts/'&&x.body[0].agent_version==='2.0.0-0'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/networks/'&&x.body.NetworkID==='net'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/containers/'&&x.body.ContainerID==='abc'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/images/'&&x.body.name==='nginx'));});
+test('NetBox inventory synchronization covers every resource and host metadata',async t=>{const {agent,callbacks}=await setup(t);for(const type of ['endpoint','networks','volumes','images','containers','registries'])await agent.sync(type);assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/hosts/'&&x.body[0].agent_version===`${packageInfo.version}-0`));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/networks/'&&x.body.NetworkID==='net'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/containers/'&&x.body.ContainerID==='abc'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/images/'&&x.body.name==='nginx'));});
 test('network discovery maps the Docker null driver to the legacy None callback value', async t => {
  const { api, agent, docker, callbacks } = await setup(t);
  docker.listNetworks = async () => [
@@ -671,6 +672,7 @@ test('volume webhooks wait for agent quota operations and synchronize kernel lim
  let reads = 0;
  agent.volumeManager.tools = tools;
  agent.volumeManager.enabled = true;
+ agent.volumeManager.statfs = async()=>({bavail:1024*1024,bsize:1048576});
  agent.volumeManager.readdir = async()=>[];
  tools.quota = (directory,project,limit)=>({max_size:reads++===0?0:5120,usage_bytes:0,soft:0,inodes:0});
  let settled = false;
@@ -686,13 +688,40 @@ test('volume webhooks wait for agent quota operations and synchronize kernel lim
  assert.equal((await api('/api/engine/volumes','DELETE',{data:{name:'data'}})).status,202);
 });
 
+test('GET /info returns the agent version from package.json', async t => {
+ const { api } = await setup(t);
+ const response = await api('/info');
+ assert.equal(response.status, 200);
+ const info = await response.json();
+ assert.equal(info.version, packageInfo.version);
+});
+
 test('overview info reports quota availability and preserves other host information on probe failure',async t=>{
  const {api,agent}=await setup(t);
  agent.volumeManager.host=async()=>'/var/lib/docker';
+ agent.volumeManager.statfs=async()=>({bavail:10240,bsize:1048576});
  agent.volumeManager.tools={filesystem:async()=>'/dev/sda1',run:async tool=>tool==='id'?'0':'version',project:async()=>({id:0,inherit:false}),quota:async()=>({})};
  let response=await api('/info');assert.equal(response.status,200);
  let info=await response.json();assert.equal(info.volumeQuotas.available,true);assert.equal(info.docker.Version,'29.5.2');
  agent.volumeManager.tools.run=async()=>{throw Error('setquota is not installed');};
  response=await api('/info');assert.equal(response.status,200);
  info=await response.json();assert.deepEqual(info.volumeQuotas,{available:false,reason:'setquota is not installed'});assert.equal(info.docker.Version,'29.5.2');
+});
+
+test('existing volume API rejects quota over-allocation on creation and resize', async t => {
+ const { api, agent, docker, store, calls } = await setup(t);
+ const volume = { Name:'allocated', Driver:'local', Scope:'local', Mountpoint:'/var/lib/docker/volumes/allocated/_data', Labels:{'com.saashup.quota.project':'1000000'} };
+ store.volumeQuotas = { next_project:1000001, volumes:{allocated:{project:1000000}} };
+ docker.info = async()=>({DockerRootDir:'/var/lib/docker'});
+ docker.listVolumes = async()=>({Volumes:[volume]});
+ docker.getVolume = ()=>({inspect:async()=>volume});
+ agent.volumeManager.statfs = async()=>({bavail:10240,bsize:1048576});
+ agent.volumeManager.tools = { filesystem:async()=>'/dev/sda1', project:async()=>({id:1000000,inherit:true}), quota:async()=>({max_size:10240,usage_bytes:0}) };
+ for (const [method, name, max_size] of [['POST','excess',1024],['PUT','allocated',11264]]) {
+  const response = await api('/api/engine/volumes',method,{data:{name,max_size}});
+  assert.equal(response.status,409);
+  assert.match((await response.json()).message,/Insufficient volume storage/);
+ }
+ assert.ok(!calls.some(c=>c.path==='/volumes/create'));
+ assert.equal(store.volumeQuotas.next_project,1000001);
 });

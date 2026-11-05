@@ -35,6 +35,31 @@ jobs:
       - run: npm --prefix tests/e2e install --ignore-scripts
       - run: npm --prefix tests/e2e audit
 
+  host-quotas:
+    if: ${{ !inputs.notify_tag }}
+    name: Host volume quotas (when supported)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install host quota tools
+        run: sudo apt-get update && sudo apt-get install -y quota e2fsprogs util-linux
+      - name: Detect support and test real named-volume quotas
+        run: |
+          set -o pipefail
+          sudo env PATH="$PATH" VOLUME_QUOTA_HOST_ROOT=/ npm run test:quota 2>&1 | tee host-quotas.log
+      - name: Upload host quota evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-quotas
+          path: host-quotas.log
+
   # Read the supported dockerd versions from versions.txt into a matrix.
   versions:
     if: ${{ !inputs.notify_tag }}
@@ -111,7 +136,7 @@ jobs:
 
   publish:
     name: Publish image to GHCR
-    needs: [unit, test, ui]
+    needs: [unit, test, ui, host-quotas]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:

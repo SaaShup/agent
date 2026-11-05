@@ -588,7 +588,7 @@
             "description": "Invalid volume input"
           },
           "409": {
-            "description": "Volume conflict or in use"
+            "description": "Volume conflict, quota below current usage, or insufficient unallocated filesystem capacity"
           },
           "503": {
             "description": "Host project quotas unavailable or unsupported"
@@ -635,7 +635,7 @@
             "description": "Invalid volume input"
           },
           "409": {
-            "description": "Volume conflict or in use"
+            "description": "Volume conflict, quota below current usage, or insufficient unallocated filesystem capacity"
           },
           "503": {
             "description": "Host project quotas unavailable or unsupported"
@@ -3797,6 +3797,46 @@
               "device": {
                 "type": "string",
                 "example": "/dev/sda1"
+              },
+              "capacity": {
+                "type": "object",
+                "description": "Filesystem free space minus unused capacity promised to live agent-managed quotas. Unlimited volumes do not reserve space.",
+                "properties": {
+                  "free_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "reserved_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "available_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "volumes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "limit_bytes": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "usage_bytes": {
+                          "type": "integer",
+                          "format": "int64"
+                        }
+                      }
+                    }
+                  }
+                }
               }
             }
           }

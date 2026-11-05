@@ -218,6 +218,7 @@ async function refresh() {
   try {
     const info = await api('/info');
     state.volumeQuotasAvailable = info.volumeQuotas?.available === true;
+    state.volumeCapacity = info.volumeQuotas?.capacity;
     $('#info-list').replaceChildren();
     for (const [label,value] of Object.entries({ 'Agent Version': info.version, 'Volume quotas': info.volumeQuotas?.available ? 'Available — ext4 project quotas' : 'Unavailable', 'Engine API': info.docker.ApiVersion, 'Engine Version': info.docker.Version, 'Host': info.dockerInfo?.Name, 'System uptime': formatUptime(info.uptime?.system), 'Agent uptime': formatUptime(info.uptime?.agent), 'Operating system': info.dockerInfo?.OperatingSystem, 'Architecture': info.docker.Arch, 'Management URL': info.config?.netbox_url || 'Not connected' })) $('#info-list').append(node('dt',label),node('dd',value || '—'));
     state.agentContainerId = info.containerId;
@@ -257,8 +258,11 @@ function edit(type, method = 'POST', data) {
     const option = node('option', `${data.max_size} MiB`);
     option.value = String(data.max_size); option.dataset.custom = 'true'; $('#volume-limit').append(option);
   }
+  const allocation = state.volumeCapacity?.volumes.find(v => v.name === data?.name);
+  const maximum = state.volumeCapacity ? state.volumeCapacity.available_bytes + (allocation ? Math.max(allocation.limit_bytes, allocation.usage_bytes) : 0) : 0;
+  for (const option of $('#volume-limit').options) option.disabled = Number(option.value) > 0 && (Number(option.value) * 1048576 > maximum || allocation && Number(option.value) * 1048576 < allocation.usage_bytes);
   $('#volume-limit').value = String(data?.max_size || 0);
-  $('#resource-data').value = JSON.stringify(data || templates[type],null,2); $('#resource-hint').textContent = type === 'volumes' ? state.volumeQuotasAvailable ? 'Enter a volume name and choose a storage limit.' : 'Volume quotas are unavailable. Volumes can only be created with Unlimited storage.' : method === 'PUT' ? 'Review the configuration. Submitting recreates the container to apply changes.' : 'Review the resource configuration before submitting.'; $('#resource-dialog').showModal();
+  $('#resource-data').value = JSON.stringify(data || templates[type],null,2); $('#resource-hint').textContent = type === 'volumes' ? state.volumeQuotasAvailable ? `Available for this volume: ${storageSize(maximum)}. Limits include capacity already assigned to this volume. Unlimited volumes do not reserve space.` : 'Volume quotas are unavailable. Volumes can only be created with Unlimited storage.' : method === 'PUT' ? 'Review the configuration. Submitting recreates the container to apply changes.' : 'Review the resource configuration before submitting.'; $('#resource-dialog').showModal();
 }
 for (const b of document.querySelectorAll('[data-create]')) b.addEventListener('click',()=>edit(b.dataset.create));
 const pruneDescriptions = {

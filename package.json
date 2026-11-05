@@ -20,6 +20,7 @@
     "test:hurl": "bash tests/hurl/run.sh",
     "test:compat": "bash tests/compat/run.sh",
     "test:browser": "bash tests/e2e/run.sh",
+    "test:quota": "node --test tests/host/volume-quotas.test.js",
     "build:all": "node scripts/check-ssh-file.mjs && docker compose -f docker-compose.yml -f docker-compose.ssh.yml -f docker-compose.quotas.yml up -d --build"
   },
   "license": "ISC",

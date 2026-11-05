@@ -9,7 +9,7 @@ test('named-volume form creates, resizes, displays and removes quota-managed sto
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
     let data: unknown;
-    if (url.pathname === '/info') data = { docker: { Version: '29', ApiVersion: '1.54' }, dockerInfo: {}, volumeQuotas: quotaStatus, configured: 'nok', config: {}, uptime: {} };
+    if (url.pathname === '/info') data = { docker: { Version: '29', ApiVersion: '1.54' }, dockerInfo: {}, volumeQuotas: { ...quotaStatus, capacity: { free_bytes: 6 * 1073741824, reserved_bytes: 0, available_bytes: volumes.some(v => v.max_size) ? 536870912 : 6 * 1073741824, volumes: volumes.filter(v => v.project_id).map(v => ({ name: v.Name, limit_bytes: Number(v.max_size) * 1048576, usage_bytes: v.usage_bytes })) } }, configured: 'nok', config: {}, uptime: {} };
     else if (url.pathname === '/system/usage') data = { images: { size: 0 }, containers: { size_rootfs: 0 }, volumes: 0, build_cache: 0 };
     else if (url.pathname === '/api/engine/volumes') {
       const input = request.postDataJSON().data;
@@ -64,6 +64,9 @@ test('named-volume form creates, resizes, displays and removes quota-managed sto
   await page.locator('#nav-volumes-btn').click();
   await page.getByRole('button', { name: 'Create volume', exact: true }).click();
   await expect(page.locator('#volume-limit')).toBeEnabled();
+  await expect(page.locator('#resource-hint')).toContainText('Available for this volume: 6 GiB');
+  await expect(page.locator('#volume-limit option[value="10240"]')).toHaveJSProperty('disabled', true);
+  await expect(page.locator('#volume-limit option[value="5120"]')).toHaveJSProperty('disabled', false);
   await expect(page.locator('#resource-data')).not.toBeVisible();
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('my-volume');
   await page.locator('#volume-limit').selectOption('5120');
@@ -75,6 +78,9 @@ test('named-volume form creates, resizes, displays and removes quota-managed sto
   await page.getByRole('button', { name: 'Change limit' }).click();
   await expect(page.locator('#volume-name')).toHaveValue('my-volume');
   await expect(page.locator('#volume-name')).toHaveAttribute('readonly', '');
+  await expect(page.locator('#resource-hint')).toContainText('Available for this volume: 5.5 GiB');
+  await expect(page.locator('#volume-limit option[value="1024"]')).toHaveJSProperty('disabled', true);
+  await expect(page.locator('#volume-limit option[value="5120"]')).toHaveJSProperty('disabled', false);
   await page.locator('#volume-limit').selectOption('0');
   await page.locator('#resource-dialog').getByRole('button', { name: 'Submit' }).click();
   await expect(page.locator('#volumes-list .volume-size')).toHaveText('Unlimited');

@@ -3,8 +3,9 @@ import { uptime as systemUptime } from 'node:os';
 import { diskUsage, usage } from './docker.js';
 import { containerRecord, createOptions, imageRecord } from './mapping.js';
 import { pruneDocker, pruneOptions } from './prune.js';
+import packageInfo from '../package.json' with { type: 'json' };
 export class Agent {
-  constructor(docker, store, netbox, version = '2.0.0') { Object.assign(this, { docker, store, netbox, version }); this.jobs = new Set(); this.pruneBlockers = new Set(); this.chains = new Map(); this.stopped = false; this.activeOperations = 0; this.volumeManager = new Volumes(docker, store); }
+  constructor(docker, store, netbox, version = packageInfo.version) { Object.assign(this, { docker, store, netbox, version }); this.jobs = new Set(); this.pruneBlockers = new Set(); this.chains = new Map(); this.stopped = false; this.activeOperations = 0; this.volumeManager = new Volumes(docker, store); }
   log(error) { console.error(JSON.stringify({ name: 'agent', level: 'error', version: this.version, msg: error.message })); }
   enqueue(key, work, { blocksPrune = true } = {}) {
     const job = (this.chains.get(key) || Promise.resolve()).then(work).catch(error => this.log(error)).finally(() => { this.jobs.delete(job); this.pruneBlockers.delete(job); if (this.chains.get(key) === job) this.chains.delete(key); });

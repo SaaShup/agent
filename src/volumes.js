@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readdir } from 'node:fs/promises';
+import { readdir, statfs } from 'node:fs/promises';
 import path from 'node:path';
 import { diskUsage } from './docker.js';
 
@@ -16,7 +16,7 @@ export function volumeInput(data = {}) {
 
 export class Volumes {
   constructor(docker, store, options = {}) {
-    Object.assign(this, { docker, store, root: process.env.VOLUME_QUOTA_HOST_ROOT || '/', readdir }, options);
+    Object.assign(this, { docker, store, root: process.env.VOLUME_QUOTA_HOST_ROOT || '/', readdir, statfs }, options);
     this.tools = options.tools || new QuotaTools(this.root);
     this.enabled = options.enabled ?? Boolean(process.env.VOLUME_QUOTA_HOST_ROOT);
     this.pending = Promise.resolve();
@@ -30,7 +30,8 @@ export class Volumes {
       await this.tools.run('setquota', ['--version']);
       await this.tools.project(directory);
       await this.tools.quota(directory, 0);
-      return { available: true, filesystem: 'ext4', device, reason: 'Ext4 project quotas are enabled and accessible' };
+      const capacity = await this.capacity(root);
+      return { available: true, filesystem: 'ext4', device, capacity, reason: 'Ext4 project quotas are enabled and accessible' };
     } catch (error) { return { available: false, reason: error.message }; }
   }
   async host() {
@@ -42,6 +43,31 @@ export class Volumes {
     return info.DockerRootDir;
   }
   async filesystem(directory) { return this.tools.filesystem(directory); }
+  async capacity(root) {
+    const directory = path.join(this.root, root, 'volumes');
+    await this.filesystem(directory);
+    const disk = await this.statfs(directory);
+    const free_bytes = disk.bavail * disk.bsize;
+    if (!Number.isSafeInteger(free_bytes) || free_bytes < 0) throw invalid('Unable to determine available volume storage', 503);
+    const volumes = [];
+    for (const volume of (await this.docker.listVolumes()).Volumes || []) {
+      const record = this.store.volumeQuotas?.volumes[volume.Name];
+      if (!record || volume.Labels?.[projectLabel] !== String(record.project)) continue;
+      const quota = await this.tools.quota(directory, record.project);
+      volumes.push({ name: volume.Name, limit_bytes: quota.max_size * 1048576, usage_bytes: quota.usage_bytes });
+    }
+    // Used blocks already reduce bavail; reserve only each quota's unused portion.
+    const reserved_bytes = volumes.reduce((sum, v) => sum + Math.max(0, v.limit_bytes - v.usage_bytes), 0);
+    return { free_bytes, reserved_bytes, available_bytes: Math.max(0, free_bytes - reserved_bytes), volumes };
+  }
+  async ensureCapacity(root, name, limit) {
+    const capacity = await this.capacity(root);
+    const current = capacity.volumes.find(v => v.name === name);
+    const used = current?.usage_bytes || 0;
+    const credit = current ? Math.max(0, current.limit_bytes - used) : 0;
+    const available = Math.max(0, capacity.free_bytes - capacity.reserved_bytes + credit);
+    if (Math.max(0, limit * 1048576 - used) > available) throw invalid(`Insufficient volume storage: at most ${Math.floor((available + used) / 1048576)} MiB can be assigned to this volume`);
+  }
   location(volume, root) {
     const expected = path.join(root, 'volumes', volume.Name, '_data');
     if (volume.Driver !== 'local' || volume.Options && Object.keys(volume.Options).length || volume.Scope !== 'local' || volume.Mountpoint !== expected) throw invalid('Only ordinary local Docker named volumes are supported');
@@ -92,6 +118,7 @@ export class Volumes {
     if (method === 'POST') {
       const directory = path.join(this.root, root, 'volumes');
       const device = await this.filesystem(directory);
+      if (limit) await this.ensureCapacity(root, name, limit);
       const state = this.store.volumeQuotas;
       const project = state.next_project;
       if (!Number.isInteger(project) || project < 1000000 || project > 2147483647) throw invalid('Project ID allocation state is invalid or exhausted', 503);
@@ -121,6 +148,7 @@ export class Volumes {
     if (method === 'PUT') {
       const value = await this.tools.quota(directory, record.project);
       if (limit && value.usage_bytes > limit * 1048576) throw invalid('New limit is below current storage usage');
+      if (limit && (!value.max_size || limit > value.max_size)) await this.ensureCapacity(root, name, limit);
       await this.tools.quota(directory, record.project, limit);
       return { name, max_size: limit };
     }

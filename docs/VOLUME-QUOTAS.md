@@ -80,6 +80,33 @@ Desktop VMs, non-ext4 storage, loop devices (including stacked loop devices), an
 local driver bind/tmpfs options are unsupported. The agent must use the host's
 `/var/run/docker.sock`. Missing tools or permissions produce a clear 503 error.
 
+## Real-host test and CI
+
+`npm run test:quota` probes the actual Docker host using the same capability
+checks as the agent. On a supported host it creates a temporary real named
+volume, verifies that writes fail with `EDQUOT` at a 16 MiB limit, increases the
+limit and verifies further writes, rejects a shrink below usage, removes the
+limit and writes beyond the previous limit, then deletes the test volume.
+Test containers and allocator state are isolated and cleaned up.
+
+On unsupported hosts, the Node test reports **SKIP** with the capability failure
+reason. A failed Docker connection or a failed enforcement assertion fails the
+test. Insufficient test capacity (less than 64 MiB) also produces an explicit
+skip. The test never prepares, reformats, or remounts host storage. It pulls
+`node:24-alpine` only after support is confirmed; `QUOTA_TEST_IMAGE` can select
+another image with Node.js installed.
+
+For a direct host run with quota privileges:
+
+```sh
+sudo env PATH="$PATH" VOLUME_QUOTA_HOST_ROOT=/ npm run test:quota
+```
+
+The standard `npm test` includes this probe. GitHub Actions runs it in a separate
+job with root access and host tools installed and uploads its log, so the result
+records whether the runner actually supports project quotas. Unsupported GitHub
+runner storage skips enforcement instead of using a loopback filesystem.
+
 ## Overview status
 
 The Overview page displays **Volume quotas: Available** or **Unavailable**.
@@ -129,6 +156,28 @@ project quota limit and usage, with a usage bar for limited volumes. Ordinary
 local volumes show **Unlimited** and usage from Docker disk accounting. Missing
 usage is shown as **Unavailable**, rather than zero. Managed volumes also
 provide **Change limit**.
+
+### Storage capacity checks
+
+The existing creation and resize API rejects a quota increase with HTTP 409 when
+it would exceed the remaining storage budget. The agent reads free, unreserved
+blocks on the filesystem containing Docker's volumes, then subtracts the unused
+portion of each live, agent-managed quota. Already used blocks are counted by
+the filesystem and are not subtracted twice. A resize credits the volume's
+existing allocation; reductions and removing a limit remain possible when the
+filesystem is overcommitted. Deleting a volume releases its allocation.
+
+The volume form shows the capacity available for that volume and disables limits
+that exceed it or fall below current usage. `GET /info` exposes the same snapshot
+in `volumeQuotas.capacity`: `free_bytes`, `reserved_bytes`, `available_bytes`, and
+per-volume `name`, `limit_bytes`, and `usage_bytes`. The API recalculates capacity
+inside its serialized mutation queue before applying a new or larger quota.
+
+These are allocation checks, not physical disk reservations. Unlimited volumes,
+external applications, other agent instances, and host administrators can still
+consume or allocate storage. Unlimited volumes reserve no future capacity, but
+their existing data reduces filesystem free space. For predictable capacity,
+use a dedicated filesystem with limited volumes managed by one agent.
 
 ```http
 POST /api/engine/volumes

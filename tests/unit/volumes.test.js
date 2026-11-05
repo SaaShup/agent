@@ -24,7 +24,7 @@ function setup(t, options = {}) {
       return { max_size: limits.get(project) || 0, usage_bytes: usage, soft: 0, inodes: 0 };
     }
   };
-  const manager = new Volumes(docker, store, { tools, enabled: true, readdir: async () => [], ...options });
+  const manager = new Volumes(docker, store, { tools, enabled: true, readdir: async () => [], statfs: async () => ({ bavail: 1024 * 1024, bsize: 1048576 }), ...options });
   return { manager, docker, store, tools, calls, volumes, setUsage: value => {usage = value;} };
 }
 
@@ -89,6 +89,65 @@ test('quota-enabled deployment can still create unlimited volumes on an unsuppor
   assert.deepEqual(calls.find(call => call[0] === 'create')[1], { Name: 'unlimited', Driver: 'local' });
   assert.equal((await manager.list()).Volumes[0].project_id, undefined);
   await assert.rejects(manager.change('POST', { name: 'limited', max_size: 1024 }), /ext4 project quotas unavailable/);
+});
+
+test('capacity rejects the eleventh 1 GiB quota and serializes competing allocations', async t => {
+  const { manager, store, calls } = setup(t, { statfs: async () => ({ bavail: 10240, bsize: 1048576 }) });
+  for (let i = 0; i < 9; i++) await manager.change('POST', { name: `data-${i}`, max_size: 1024 });
+  const results = await Promise.allSettled(['last-one', 'too-many'].map(name => manager.change('POST', { name, max_size: 1024 })));
+  assert.deepEqual(results.map(r => r.status), ['fulfilled', 'rejected']);
+  assert.equal(results[1].reason.statusCode, 409);
+  assert.match(results[1].reason.message, /Insufficient volume storage/);
+  assert.equal(store.volumeQuotas.next_project, 1000010);
+  assert.equal(calls.filter(c => c[0] === 'create').length, 10);
+  assert.equal((await manager.capacity('/var/lib/docker')).available_bytes, 0);
+});
+
+test('capacity accounts for existing usage, resize credits, unlimited volumes and released limits', async t => {
+  let free = 6144;
+  const { manager, tools, volumes, store } = setup(t, { statfs: async () => ({ bavail: free, bsize: 1048576 }) });
+  const quotas = new Map();
+  function seed(name, project, limit, used) {
+    store.volumeQuotas.volumes[name] = { project };
+    volumes.set(name, { Name: name, Driver: 'local', Scope: 'local', Mountpoint: `/var/lib/docker/volumes/${name}/_data`, Labels: { [projectLabel]: String(project) } });
+    quotas.set(project, { max_size: limit, usage_bytes: used * 1048576 });
+  }
+  seed('first', 1000000, 5120, 3072);
+  seed('second', 1000001, 3072, 1024);
+  seed('unlimited', 1000002, 0, 4096);
+  tools.project = directory => ({ id: store.volumeQuotas.volumes[directory.split('/').at(-2)].project, inherit: true });
+  tools.quota = (directory, project, limit) => {
+    const quota = quotas.get(project);
+    if (limit !== undefined) quota.max_size = limit;
+    return quota;
+  };
+  let capacity = await manager.capacity('/var/lib/docker');
+  assert.equal(capacity.reserved_bytes, 4096 * 1048576);
+  assert.equal(capacity.available_bytes, 2048 * 1048576);
+  await manager.change('PUT', { name: 'first', max_size: 7168 });
+  await assert.rejects(manager.change('PUT', { name: 'second', max_size: 4096 }), /Insufficient volume storage/);
+  free = 0; // Unrelated host data filled the filesystem; reductions must still work.
+  await manager.change('PUT', { name: 'first', max_size: 5120 });
+  await manager.change('PUT', { name: 'first', max_size: 0 });
+  free = 6144;
+  await manager.change('PUT', { name: 'unlimited', max_size: 8192 });
+  await manager.change('DELETE', { name: 'second' });
+  capacity = await manager.capacity('/var/lib/docker');
+  assert.equal(capacity.available_bytes, 2048 * 1048576);
+});
+
+test('capacity fails closed on unreadable storage and ignores stale or foreign quota records', async t => {
+  const { manager, docker, store, volumes } = setup(t);
+  store.volumeQuotas.volumes.foreign = { project: 1000000 };
+  volumes.set('foreign', { Name: 'foreign', Labels: { [projectLabel]: '999' } });
+  volumes.set('ordinary', { Name: 'ordinary' });
+  assert.equal((await manager.capacity('/var/lib/docker')).reserved_bytes, 0);
+  docker.listVolumes = async () => ({});
+  assert.equal((await manager.capacity('/var/lib/docker')).reserved_bytes, 0);
+  manager.statfs = async () => ({ bavail: NaN, bsize: 4096 });
+  await assert.rejects(manager.change('POST', { name: 'bad', max_size: 1 }), { statusCode: 503 });
+  manager.statfs = async () => { throw Error('Host storage inaccessible'); };
+  await assert.rejects(manager.change('POST', { name: 'bad', max_size: 1 }), /Host storage inaccessible/);
 });
 
 test('agent rejects remote daemons, rootless Docker, and invalid roots', async t => {
