@@ -110,6 +110,19 @@ test('unsafe backup directories and incorrect file ownership are rejected',async
   assert.equal(await fs.readFile(file,'utf8'),key);
 });
 
+test('configured SSH ownership supports a root agent and existing user-owned backups', async t => {
+  const { file, backups } = await setup(t, key + '\n');
+  const owner = process.getuid();
+  await fs.mkdir(backups, { mode: 0o700 });
+  t.mock.method(process, 'getuid', () => owner + 1);
+  const keys = new AuthorizedKeys(file, backups, 'hostuser', owner);
+  const current = await keys.list();
+  await keys.change('POST', { publicKey: other, revision: current.revision });
+  assert.equal((await keys.list()).keys.length, 2);
+  assert.equal((await fs.stat(file)).uid, owner);
+  await assert.rejects(new AuthorizedKeys(file, backups, 'wrong', owner + 2).list(), { statusCode: 409 });
+});
+
 test('lock contention, lock permission errors and backup failures preserve live contents',async t=>{
   const {keys,file,backups}=await setup(t,key+'\n');await fs.mkdir(backups,{mode:0o700});const lock=path.join(backups,'.authorized_keys.agent.lock');
   const input={publicKey:other,revision:(await keys.list()).revision};

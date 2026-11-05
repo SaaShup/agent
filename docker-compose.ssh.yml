@@ -1,10 +1,11 @@
-# Included by npm run build. Bind only the host's existing authorized_keys file.
+# Included by SSH and standard builds. Bind only the host's existing authorized_keys file.
 services:
   agent:
     user: "${SSH_KEYS_UID:-1000}:${SSH_KEYS_GID:-1000}"
     environment:
       SSH_AUTHORIZED_KEYS_FILE: /host-ssh/authorized_keys
       SSH_KEYS_ACCOUNT: ${SSH_KEYS_ACCOUNT:-Host account}
+      SSH_KEYS_UID: ${SSH_KEYS_UID:-1000}
     volumes:
       - type: bind
         source: ${SSH_AUTHORIZED_KEYS_FILE:-${HOME}/.ssh/authorized_keys}

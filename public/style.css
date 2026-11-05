@@ -207,3 +207,6 @@ main.documentation { margin-left: 0; }
 [data-theme="dark"] #error { color: #ffbbc0; background: #432b38; border-color: #75434f; }
 [data-theme="dark"] #prune-error, [data-theme="dark"] #ssh-error { color: #ffb4bf; }
 [data-theme="dark"] progress, [data-theme="dark"] progress::-webkit-progress-bar { background: #263e53; }
+
+.volume-storage { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding-top: 16px; margin: 16px 0; border-top: 1px solid var(--line); }
+.volume-storage dt, .volume-storage dd { margin: 0; }

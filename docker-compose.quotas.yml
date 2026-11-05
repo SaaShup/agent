@@ -1,0 +1,9 @@
+# Enable direct host quota management by the agent; no separate service.
+services:
+  agent:
+    user: "0:0"
+    pid: host
+    privileged: true
+    cap_drop: !reset []
+    environment:
+      VOLUME_QUOTA_HOST_ROOT: /proc/1/root

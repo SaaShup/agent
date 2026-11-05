@@ -2,7 +2,7 @@
   "info": {
     "title": "Paashup Agent",
     "version": "2.0.0",
-    "description": "Interactive Paashup Agent API. Execute requests against this agent. Engine webhooks return 202 acknowledgments; prune and SSH key mutations complete synchronously."
+    "description": "Interactive Paashup Agent API. Execute requests against this agent. Engine webhooks return 202 acknowledgments; volume, prune, and SSH key mutations complete synchronously."
   },
   "openapi": "3.0.0",
   "paths": {
@@ -487,6 +487,15 @@
         "responses": {
           "202": {
             "description": "202 response"
+          },
+          "400": {
+            "description": "Invalid volume input"
+          },
+          "409": {
+            "description": "Volume conflict or in use"
+          },
+          "503": {
+            "description": "Host project quotas unavailable or unsupported"
           }
         },
         "summary": "Delete a volume",
@@ -547,7 +556,7 @@
           "agent volumes"
         ],
         "requestBody": {
-          "description": "create Networks",
+          "description": "Create a real local named volume. max_size is integral MiB, 0 means unlimited. Limits require the agent access to host ext4 project quotas.",
           "required": true,
           "content": {
             "application/json": {
@@ -574,10 +583,67 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid volume input"
+          },
+          "409": {
+            "description": "Volume conflict, quota below current usage, or insufficient unallocated filesystem capacity"
+          },
+          "503": {
+            "description": "Host project quotas unavailable or unsupported"
           }
         },
-        "summary": "Create a volume",
-        "operationId": "post_api_engine_volumes"
+        "summary": "Create a named volume with an optional ext4 project quota",
+        "operationId": "post_api_engine_volumes",
+        "description": "Completes before returning the 202 acknowledgment. Existing volume names return 409. Unsupported host quotas return 503 without creating a volume."
+      },
+      "put": {
+        "tags": [
+          "agent volumes"
+        ],
+        "requestBody": {
+          "description": "Volume name and new max_size in MiB.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostApiEngineVolumes"
+              },
+              "example": {
+                "data": {
+                  "name": "my-volume",
+                  "driver": "local",
+                  "max_size": 0
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "202 response",
+            "content": {
+              "application/json; charset=utf-8": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetApiEngine202ResponseBody"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid volume input"
+          },
+          "409": {
+            "description": "Volume conflict, quota below current usage, or insufficient unallocated filesystem capacity"
+          },
+          "503": {
+            "description": "Host project quotas unavailable or unsupported"
+          }
+        },
+        "summary": "Change a managed volume storage limit",
+        "operationId": "put_api_engine_volumes",
+        "description": "Updates the ext4 project quota in place. A limit below current usage or an unmanaged volume returns 409. Set max_size to 0 for unlimited."
       }
     },
     "/api/engine/registries": {
@@ -2101,10 +2167,23 @@
                 "enum": [
                   "local"
                 ]
+              },
+              "max_size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8589934591,
+                "default": 0,
+                "description": "Hard ext4 project quota in MiB. 1024 = 1 GiB; 5120 = 5 GiB; 10240 = 10 GiB. 0 is unlimited. Agent host quota access required for limited volumes."
               }
-            }
+            },
+            "required": [
+              "name"
+            ]
           }
-        }
+        },
+        "required": [
+          "data"
+        ]
       },
       "PostApiEngineNetworks": {
         "type": "object",
@@ -3695,6 +3774,71 @@
               "system",
               "agent"
             ]
+          },
+          "volumeQuotas": {
+            "type": "object",
+            "description": "Read-only host ext4 project quota availability check. Does not create a volume or change limits.",
+            "required": [
+              "available",
+              "reason"
+            ],
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Availability explanation, including unsupported storage or missing host tools/privileges."
+              },
+              "filesystem": {
+                "type": "string",
+                "example": "ext4"
+              },
+              "device": {
+                "type": "string",
+                "example": "/dev/sda1"
+              },
+              "capacity": {
+                "type": "object",
+                "description": "Filesystem free space minus unused capacity promised to live agent-managed quotas. Unlimited volumes do not reserve space.",
+                "properties": {
+                  "free_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "reserved_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "available_bytes": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "volumes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "limit_bytes": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "usage_bytes": {
+                          "type": "integer",
+                          "format": "int64"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "required": [
