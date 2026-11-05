@@ -1,6 +1,4 @@
 import { test, expect } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 
 test('named-volume form creates, resizes, displays and removes quota-managed storage', async ({ page }) => {
   let volumes: Record<string, unknown>[] = [];
@@ -20,14 +18,8 @@ test('named-volume form creates, resizes, displays and removes quota-managed sto
       return route.fulfill({ status: 202, json: { data: input } });
     } else if (url.pathname === '/api/volumes') data = { Volumes: volumes, Warnings: null };
     else if (url.pathname.startsWith('/api/')) data = [];
-    else {
-      const name = url.pathname === '/' ? 'index.html' : path.basename(url.pathname);
-      const types: Record<string, string> = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
-      const vendor: Record<string, string> = { 'xterm.css': '../../node_modules/@xterm/xterm/css/xterm.css', 'xterm.js': '../../node_modules/@xterm/xterm/lib/xterm.mjs' };
-      let body = await readFile(path.resolve(vendor[name] || `../../public/${name}`), 'utf8');
-      if (name === 'index.html') body = body.replace('<head>', '<head><meta name="style-nonce" content="test-nonce">');
-      return route.fulfill({ body, contentType: types[name.split('.').pop()!] });
-    }
+    // Use the running agent for assets, as in the CI /e2e-only container mount.
+    else return route.continue();
     return route.fulfill({ json: data });
   });
   await page.goto('/#info');
