@@ -1,14 +1,23 @@
+import { Volumes } from './volumes.js';
 import { uptime as systemUptime } from 'node:os';
 import { diskUsage, usage } from './docker.js';
 import { containerRecord, createOptions, imageRecord } from './mapping.js';
 import { pruneDocker, pruneOptions } from './prune.js';
 export class Agent {
-  constructor(docker, store, netbox, version = '2.0.0') { Object.assign(this, { docker, store, netbox, version }); this.jobs = new Set(); this.pruneBlockers = new Set(); this.chains = new Map(); this.stopped = false; this.activeOperations = 0; }
+  constructor(docker, store, netbox, version = '2.0.0') { Object.assign(this, { docker, store, netbox, version }); this.jobs = new Set(); this.pruneBlockers = new Set(); this.chains = new Map(); this.stopped = false; this.activeOperations = 0; this.volumeManager = new Volumes(docker, store); }
   log(error) { console.error(JSON.stringify({ name: 'agent', level: 'error', version: this.version, msg: error.message })); }
   enqueue(key, work, { blocksPrune = true } = {}) {
     const job = (this.chains.get(key) || Promise.resolve()).then(work).catch(error => this.log(error)).finally(() => { this.jobs.delete(job); this.pruneBlockers.delete(job); if (this.chains.get(key) === job) this.chains.delete(key); });
     if (blocksPrune) this.pruneBlockers.add(job);
     this.chains.set(key, job); this.jobs.add(job); return job;
+  }
+  async volumes() { return this.volumeManager.list(); }
+  async volumeChange(method, data) {
+    if (this.pruning) throw Object.assign(Error('Prune is in progress'), { statusCode: 409 });
+    this.activeOperations++;
+    const work = this.volumeManager.change(method, data);
+    this.jobs.add(work);
+    try { return await work; } finally { this.activeOperations--; this.jobs.delete(work); }
   }
   async containers() { const list = await this.docker.listContainers({ all: true }); return Promise.all(list.map(c => this.docker.getContainer(c.Id).inspect().catch(e => { if (e.statusCode !== 404) throw e; return null; }))).then(x => x.filter(Boolean)); }
   async prune(resource, input) {
@@ -33,6 +42,7 @@ export class Agent {
   async info() {
     const output = { message: 'netbox-saashup-agent', configured: this.store.config.netbox_token ? 'ok' : 'nok', version: this.version, flows: this.store.config.flows, containerId: process.env.HOSTNAME, sshKeysEnabled: Boolean(process.env.SSH_AUTHORIZED_KEYS_FILE), uptime: { system: systemUptime(), agent: process.uptime() } };
     try { output.docker = await this.docker.version(); output.dockerInfo = await this.docker.info(); output.config = this.store.config; } catch { output.docker = 'error'; output.configured = 'socket error'; }
+    output.volumeQuotas = await this.volumeManager.capabilities();
     return output;
   }
   async recreationTarget(id) {
@@ -83,7 +93,7 @@ export class Agent {
       await this.netbox.resource('PATCH', 'hosts', [{ id: Number(host || 0), docker_api_version: version.ApiVersion, agent_version: `${this.version}-${this.store.config.flows}`, state: 'running', operation: 'none' }]);
     } else if (type === 'containers') { for (const c of await this.containers()) await this.netbox.resource('POST', type, containerRecord(c, host)); }
     else if (type === 'networks') { for (const n of await this.docker.listNetworks()) await this.netbox.resource('POST', type, { host, name: n.Name, driver: n.Driver === 'null' ? 'None' : n.Driver ?? 'None', NetworkID: n.Id, state: 'created' }); }
-    else if (type === 'volumes') { for (const v of (await this.docker.listVolumes()).Volumes || []) await this.netbox.resource('POST', type, { host, name: v.Name, driver: v.Driver }); }
+    else if (type === 'volumes') { for (const v of (await this.volumes()).Volumes) await this.netbox.resource('POST', type, { host, name: v.Name, driver: v.Driver, ...(v.max_size !== undefined ? { max_size: v.max_size } : {}) }); }
     else if (type === 'images') { await this.registries(); for (const i of await this.docker.listImages({ digests: true })) await this.netbox.resource('POST', type, imageRecord(i, host, this.store.registries)); }
   }
   async callback(c, d) {
@@ -99,7 +109,7 @@ export class Agent {
         if (type === 'endpoint') { this.store.config = { netbox_url: '', netbox_token: '', ui: 1, id: '', endpoint: '', flows: '0' }; this.store.registries = []; await this.store.save(); return; }
         if (['deleted', 'refreshing'].includes(d.host?.state)) return;
         if (type === 'containers' && d.ContainerID) await this.docker.getContainer(d.ContainerID).remove();
-        if (type === 'volumes' && d.name) await this.docker.getVolume(d.name).remove();
+        if (type === 'volumes' && d.name) await this.volumeChange('DELETE', d);
         if (type === 'networks' && d.name) await this.docker.getNetwork(d.name).remove();
         if (type === 'images' && (d.ImageID || d.name)) {
           await this.docker.getImage(d.ImageID || `${d.name}:${d.version}`).remove();
@@ -111,7 +121,7 @@ export class Agent {
       if (method === 'POST') {
         if (type === 'containers' && d.name && d.state === 'none') { const c = await this.docker.createContainer(createOptions(d)); await this.callback(c, d); await this.netbox.journal('container', d.id, 'success', 'container created'); }
         if (type === 'networks' && d.state === 'creating') { const n = await this.docker.createNetwork({ Name: d.name, Driver: d.driver }); await this.netbox.resource('PATCH', type, [{ id: d.id, NetworkID: n.id, state: 'created' }]); }
-        if (type === 'volumes' && d.name) { const info = await this.docker.info(); await this.docker.createVolume({ Name: d.name, Driver: d.driver, ...(info.Driver !== 'overlay2' && Number(d.max_size) > 0 ? { DriverOpts: { o: `size=${d.max_size}m` } } : {}) }); }
+        if (type === 'volumes') await this.volumeChange('POST', d);
         if (type === 'images' && ((d.size <= 0 && d.ImageID == null) || d.force === true)) {
           await this.netbox.journal('image', d.id, 'info', 'pulling image');
           const stream = await this.docker.pull(`${d.name}:${d.version}`, { authconfig: d.registry });
@@ -140,6 +150,7 @@ export class Agent {
           await this.netbox.journal('host', host, 'info', 'agent refreshed');
         }
       }
+      if (method === 'PUT' && type === 'volumes') await this.volumeChange('PUT', d);
       if (method === 'PUT' && type === 'containers' && d.ContainerID) {
         let c = this.docker.getContainer(d.ContainerID);
         await this.netbox.journal('container', d.id, 'info', `operating ${d.operation}: pending`);

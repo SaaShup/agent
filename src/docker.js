@@ -25,4 +25,12 @@ export function usage(data) {
   return { layers_size: data.LayersSize, images: { shared_size: sum(data.Images, x => x.SharedSize), size: sum(data.Images, x => x.Size), virtual_size: sum(data.Images, x => x.VirtualSize) }, containers: { size_rootfs: sum(data.Containers, x => x.SizeRootFs) }, volumes: sum(data.Volumes, x => x.UsageData?.Size), build_cache: sum(data.BuildCache, x => x.Size) };
 }
 // Dockerode does not expose system/df in all supported releases.
-export function diskUsage(docker) { return new Promise((resolve, reject) => docker.modem.dial({ path: '/system/df', method: 'GET', statusCodes: { 200: true } }, (e, data) => e ? reject(e) : resolve(data))); }
+const diskUsageRequests = new WeakMap();
+export function diskUsage(docker) {
+  if (diskUsageRequests.has(docker)) return diskUsageRequests.get(docker);
+  const request = new Promise((resolve, reject) => docker.modem.dial({ path: '/system/df', method: 'GET', statusCodes: { 200: true } }, (e, data) => e ? reject(e) : resolve(data)));
+  diskUsageRequests.set(docker, request);
+  const cleanup = () => diskUsageRequests.delete(docker);
+  request.then(cleanup, cleanup);
+  return request;
+}

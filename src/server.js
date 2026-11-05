@@ -50,7 +50,7 @@ export function createServer(agent) {
       if (req.method === 'GET' && route === '/metrics') return send(res, 200, await metrics(agent), 'text/plain');
       if (req.method === 'GET' && route === '/api/containers') return send(res, 200, await agent.containers());
       if (req.method === 'GET' && route === '/api/images') return send(res, 200, await agent.docker.listImages({ digests: true }));
-      if (req.method === 'GET' && route === '/api/volumes') { const data = await agent.docker.listVolumes(); return send(res, 200, { ...data, Volumes: data.Volumes || [], Warnings: data.Warnings || null }); }
+      if (req.method === 'GET' && route === '/api/volumes') return send(res, 200, await agent.volumes());
       if (req.method === 'GET' && route === '/api/networks') return send(res, 200, await agent.docker.listNetworks());
       if (req.method === 'GET' && route === '/api/registries') return send(res, 200, await agent.registries(false));
       const prune = route.match(/^\/api\/engine\/([^/]+)\/prune$/);
@@ -95,6 +95,8 @@ export function createServer(agent) {
         }
         if (type === 'containers' && (req.method === 'POST' || (req.method === 'PUT' && input.data?.operation === 'recreate'))) resourceLimits(input.data);
         if (req.method === 'PUT' && type === 'containers' && input.data?.operation === 'recreate') await agent.recreationTarget(input.data.ContainerID);
+        // Volume errors must reach the caller before a volume can be attached.
+        if (type === 'volumes' && req.method !== 'GET') { await agent.write(req.method, type, input.data); return send(res, 202, input); }
         // Preserve the original acknowledgment payload: body for writes, {} for reads.
         send(res, 202, input);
         agent.enqueue(`${type}:${input.data?.ContainerID || input.data?.name || ''}`, async () => {

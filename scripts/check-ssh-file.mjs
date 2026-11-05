@@ -15,6 +15,6 @@ try {
   if (info.mode & 0o022) throw Error('authorized_keys must not be writable by group or others');
   if (info.uid !== Number(service.user.split(':')[0])) throw Error(`Set SSH_KEYS_UID=${info.uid} and SSH_KEYS_GID=${info.gid} to match the host file owner`);
 } catch (error) {
-  console.error(`Cannot mount host authorized_keys: ${filename}\n${error.message}\n\nThe file must already exist. To create it for your current host account:\n  install -d -m 700 "$HOME/.ssh"\n  touch "$HOME/.ssh/authorized_keys"\n  chmod 600 "$HOME/.ssh/authorized_keys"\n\nThen configure and start the container:\n  export SSH_AUTHORIZED_KEYS_FILE="$HOME/.ssh/authorized_keys"\n  export SSH_KEYS_UID="$(id -u)" SSH_KEYS_GID="$(id -g)"\n  npm run build\n\nUse npm run build:no-ssh to start without SSH key management.`);
+  console.error(`Cannot mount host authorized_keys: ${filename}\n${error.message}\n\nThe file must already exist. To create it for your current host account:\n  install -d -m 700 "$HOME/.ssh"\n  touch "$HOME/.ssh/authorized_keys"\n  chmod 600 "$HOME/.ssh/authorized_keys"\n\nThen configure and start the container:\n  export SSH_AUTHORIZED_KEYS_FILE="$HOME/.ssh/authorized_keys"\n  export SSH_KEYS_UID="$(id -u)" SSH_KEYS_GID="$(id -g)"\n  npm run build:ssh\n\nUse npm run build:light to start without SSH key management.`);
   process.exit(1);
 }

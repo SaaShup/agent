@@ -65,3 +65,11 @@ test('direct-file configuration uses the default data path when DATAPATH is omit
  const {file}=await fixture(t);delete process.env.DATAPATH;
  assert.deepEqual((await hostSshKeys('GET')).keys,[]);assert.equal(process.env.SSH_AUTHORIZED_KEYS_FILE,file);
 });
+
+test('explicit SSH owner configuration is checked for a quota-enabled root agent', async t => {
+ const { api, file } = await fixture(t);
+ env(t, 'SSH_KEYS_UID', String((await fs.stat(file)).uid));
+ assert.equal((await api()).status, 200);
+ process.env.SSH_KEYS_UID = 'invalid';
+ assert.equal((await api()).status, 409);
+});

@@ -8,7 +8,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "docker compose -f docker-compose.yml -f docker-compose.ssh.yml up -d --build",
+    "build": "npm run build:all",
+    "build:light": "docker compose -f docker-compose.yml up -d --build",
+    "build:ssh": "node scripts/check-ssh-file.mjs && docker compose -f docker-compose.yml -f docker-compose.ssh.yml up -d --build",
+    "build:quota": "docker compose -f docker-compose.yml -f docker-compose.quotas.yml up -d --build",
     "start": "node src/index.js",
     "test": "bash tests/run.sh",
     "test:unit": "node --test --experimental-test-coverage --test-coverage-include='src/**/*.js' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 tests/unit/*.test.js tests/integration/*.test.js",
@@ -17,8 +20,7 @@
     "test:hurl": "bash tests/hurl/run.sh",
     "test:compat": "bash tests/compat/run.sh",
     "test:browser": "bash tests/e2e/run.sh",
-    "build:no-ssh": "docker compose up -d --build",
-    "prebuild": "node scripts/check-ssh-file.mjs"
+    "build:all": "node scripts/check-ssh-file.mjs && docker compose -f docker-compose.yml -f docker-compose.ssh.yml -f docker-compose.quotas.yml up -d --build"
   },
   "license": "ISC",
   "dependencies": {

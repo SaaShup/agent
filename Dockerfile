@@ -6,6 +6,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 FROM node:24-alpine
 ENV NODE_ENV=production DATAPATH=/data PORT=1880
 WORKDIR /app
+RUN apk add --no-cache util-linux
 RUN mkdir -p /data && chown node:node /data
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY package.json ./
