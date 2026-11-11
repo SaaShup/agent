@@ -58,15 +58,16 @@ function entries(text) {
 }
 
 export class AuthorizedKeys {
-  constructor(filename, backupDirectory, account = 'Host account') {
+  constructor(filename, backupDirectory, account = 'Host account', ownerUid) {
     this.filename = path.resolve(filename); this.backupDirectory = path.resolve(backupDirectory); this.account = account;
+    this.ownerUid = ownerUid;
   }
   async open(writable = false) {
     return fs.open(this.filename, (writable ? constants.O_RDWR : constants.O_RDONLY) | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   }
   async snapshot(file) {
     const info = await file.stat();
-    if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid() || info.mode & 0o022) throw sshError(409, 'authorized_keys must be a regular file owned by the agent user and not writable by others');
+    if (!info.isFile() || info.nlink !== 1 || info.uid !== (this.ownerUid ?? process.getuid()) || info.mode & 0o022) throw sshError(409, 'authorized_keys must be a regular file owned by the configured SSH user and not writable by others');
     if (info.size > 1024 * 1024) throw sshError(413, 'authorized_keys exceeds 1 MiB');
     const buffer = Buffer.alloc(1024 * 1024 + 1); let size = 0;
     while (size < buffer.length) {
@@ -90,7 +91,7 @@ export class AuthorizedKeys {
     const directory = await fs.open(this.backupDirectory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
     try {
       const info = await directory.stat();
-      if (info.uid !== process.getuid() || info.mode & 0o022) throw sshError(409, 'SSH backup directory must be owned by the agent user and not writable by others');
+      if ((info.uid !== process.getuid() && info.uid !== this.ownerUid) || info.mode & 0o022) throw sshError(409, 'SSH backup directory must be owned by the agent or configured SSH user and not writable by others');
       return directory;
     } catch (error) { await directory.close(); throw error; }
   }

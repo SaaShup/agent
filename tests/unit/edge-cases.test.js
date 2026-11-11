@@ -130,3 +130,15 @@ test('unconfigured NetBox requests and host journals are no-ops', async () => {
   assert.equal(await netbox.resource('GET', 'hosts'), null);
   assert.equal(await netbox.journal('host', undefined, 'info', 'startup'), undefined);
 });
+
+test('concurrent volume and overview reads share Docker disk accounting and retry after failures',async()=>{
+  let callback,calls=0;
+  const docker={modem:{dial:(options,done)=>{calls++;callback=done;}}};
+  const overview=diskUsage(docker),volumes=diskUsage(docker);
+  assert.equal(overview,volumes);assert.equal(calls,1);
+  callback(null,{Volumes:[]});await Promise.all([overview,volumes]);
+  const failed=diskUsage(docker);assert.equal(calls,2);
+  callback(Error('accounting failed'));await assert.rejects(failed,/accounting failed/);
+  const retry=diskUsage(docker);assert.equal(calls,3);
+  callback(null,{Volumes:[]});await retry;
+});

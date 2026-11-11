@@ -38,7 +38,21 @@ docker compose logs -f
 docker compose down
 ```
 
+For named volumes with 1, 5, or 10 GiB limits (or unlimited), follow the [ext4 project quota setup guide](docs/VOLUME-QUOTAS.md).
+
 For optional host SSH key management, follow the [SSH setup guide](docs/HOST-SSH-KEYS.md).
+The build commands select which host features to enable:
+
+| Command | Features |
+| --- | --- |
+| `npm run build` | SSH key management and volume quotas (standard build) |
+| `npm run build:light` | Basic agent |
+| `npm run build:ssh` | Basic agent and SSH key management |
+| `npm run build:quota` | Basic agent and volume quotas |
+| `npm run build:all` | Alias for the standard feature set |
+
+For the standard build, configure the SSH file and host quota prerequisites; see the
+[combined setup](docs/VOLUME-QUOTAS.md#enable-ssh-key-management-and-quotas-together).
 
 ## Developer quick start
 

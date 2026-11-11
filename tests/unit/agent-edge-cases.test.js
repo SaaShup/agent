@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { Agent } from '../../src/agent.js';
+import packageInfo from '../../package.json' with { type: 'json' };
 
 const inspect = () => ({ Id: 'original', Name: '/demo', Image: 'sha256:old', State: { Status: 'running', Running: true }, Config: { Env: ['A=1'], Labels: {} }, HostConfig: {}, Mounts: [] });
 function setup(t) {
@@ -313,7 +314,7 @@ test('startup imports registry references and periodic checks recover persistenc
     requests.push([method, type, ...args]);
     return type === 'registries' ? { results: [
       { id: 1, name: 'private.test', images: ['one:v1', { display: 'two:v2' }] }, { id: 2 },
-    ] } : { agent_version: '2.0.0-0' };
+    ] } : { agent_version: `${packageInfo.version}-0` };
   };
   agent.start(); await Promise.all(agent.jobs);
   assert.deepEqual(store.registries[0].images, ['private.test/one:v1', 'private.test/two:v2']);

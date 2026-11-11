@@ -11,6 +11,7 @@ import { WebSocket } from 'ws';
 import { Store } from '../../src/config.js';
 import { Netbox } from '../../src/netbox.js';
 import { Agent } from '../../src/agent.js';
+import packageInfo from '../../package.json' with { type: 'json' };
 import { createServer } from '../../src/server.js';
 const auth='Basic '+Buffer.from('admin:saashup').toString('base64');
 const fixture={Id:'abc',Name:'/demo',Image:'sha256:image',Config:{Image:'nginx:alpine',Env:['X=1']},State:{Status:'created',ExitCode:0},HostConfig:{RestartPolicy:{Name:'no'},LogConfig:{Type:'json-file',Config:{}}},NetworkSettings:{Networks:{bridge:{}}},Mounts:[]};
@@ -130,10 +131,10 @@ test('registry reads reconcile external image changes and retain saved metadata'
 
 test('HTTP read contracts, assets and documentation use real Engine transport',async t=>{const {api}=await setup(t);for(const route of ['/','/app.js','/doc','/doc.js','/doc.css','/vendor/swagger-ui-bundle.js','/vendor/swagger-ui.css','/openapi','/openapi.json','/info','/system/usage','/api/containers','/api/images','/api/networks','/api/volumes','/api/registries','/metrics']){const r=await api(route);assert.equal(r.status,200,route);assert.equal(r.headers.get('x-content-type-options'),'nosniff');}assert.equal((await(await api('/api/containers')).json())[0].Name,'/demo');assert.equal((await(await api('/info')).json()).docker.Version,'29.5.2');assert.deepEqual((await(await api('/api/volumes')).json()).Volumes,[]);assert.equal((await(await api('/system/usage')).json()).images.size,0);});
 test('asynchronous operations acknowledge and report NetBox callbacks, journals, authentication',async t=>{const {api,agent,calls,callbacks}=await setup(t);const data={id:7,name:'demo',state:'none',image:{name:'nginx',version:'alpine'}};const r=await api('/api/engine/containers','POST',{data});assert.equal(r.status,202);assert.deepEqual(await r.json(),{data});await Promise.all(agent.jobs);assert.equal(calls.find(x=>x.path==='/containers/create').body.Image,'nginx:alpine');const cb=callbacks.find(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/containers/');assert.equal(cb.body[0].image.ImageID,'sha256:image');assert.equal(cb.body[0].state,'created');assert.equal(cb.auth,'Bearer ntb_test');assert.equal(callbacks.find(x=>x.url==='/api/extras/journal-entries/').body.kind,'success');});
-test('all container operations and resource lifecycles reach Engine endpoints',async t=>{const {agent,calls}=await setup(t);for(const operation of ['start','stop','restart','kill','pause','unpause','rename','none'])await agent.write('PUT','containers',{id:7,ContainerID:'abc',name:operation==='rename'?'renamed':'demo',operation,restart_policy:'always'});for(const operation of ['start','stop','restart','kill','pause','unpause','rename','update'])assert.ok(calls.some(x=>x.path===`/containers/abc/${operation}`),operation);await agent.write('POST','networks',{state:'creating',name:'n',driver:'bridge'});await agent.write('POST','volumes',{name:'v',driver:'local'});await agent.write('POST','images',{id:1,name:'nginx',version:'alpine',size:0,ImageID:null});for(const [type,d] of [['containers',{ContainerID:'abc'}],['images',{ImageID:'sha256:image'}],['volumes',{name:'v'}],['networks',{name:'n'}]])await agent.write('DELETE',type,d);assert.ok(calls.some(x=>x.path==='/images/create'));assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/images/sha256:image'));});
+test('all container operations and resource lifecycles reach Engine endpoints',async t=>{const {agent,calls}=await setup(t);for(const operation of ['start','stop','restart','kill','pause','unpause','rename','none'])await agent.write('PUT','containers',{id:7,ContainerID:'abc',name:operation==='rename'?'renamed':'demo',operation,restart_policy:'always'});for(const operation of ['start','stop','restart','kill','pause','unpause','rename','update'])assert.ok(calls.some(x=>x.path===`/containers/abc/${operation}`),operation);await agent.write('POST','networks',{state:'creating',name:'n',driver:'bridge'});await agent.write('POST','volumes',{name:'vv',driver:'local'});await agent.write('POST','images',{id:1,name:'nginx',version:'alpine',size:0,ImageID:null});for(const [type,d] of [['containers',{ContainerID:'abc'}],['images',{ImageID:'sha256:image'}],['volumes',{name:'vv'}],['networks',{name:'n'}]])await agent.write('DELETE',type,d);assert.ok(calls.some(x=>x.path==='/images/create'));assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/images/sha256:image'));});
 test('container recreation preserves settings and rolls back a failed replacement',async t=>{const {agent,calls,docker}=await setup(t);await agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'demo',operation:'recreate',image:{ImageID:'sha256:image'},env:[{var_name:'A',value:"a'b"}],network_settings:[]});const created=calls.find(x=>x.path==='/containers/create');assert.deepEqual(created.body.Env,["A=a'b"]);assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/containers/abc'));docker.createContainer=async()=>{throw Error('create failed')};await assert.rejects(agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'abc',operation:'recreate',image:{ImageID:'sha256:image'}}),/create failed/);assert.ok(calls.filter(x=>x.path==='/containers/abc/rename').some(x=>x.query==='?name=demo'));});
 test('exec, logs and stats retain the legacy response envelopes',async t=>{const {api}=await setup(t);const result=await(await api('/api/engine/containers/abc/exec','PUT',{cmd:['echo','hello']})).json();assert.ok(result.stdout.includes('hello'));assert.equal(await(await api('/api/engine/containers/abc/logs')).text(),'hello\n');assert.equal((await(await api('/api/engine/containers/abc/stats')).json()).cpu_stats.cpu_usage.total_usage,5);assert.equal((await api('/api/engine/containers/abc/exec','PUT',{cmd:'whoami'})).status,400);});
-test('NetBox inventory synchronization covers every resource and host metadata',async t=>{const {agent,callbacks}=await setup(t);for(const type of ['endpoint','networks','volumes','images','containers','registries'])await agent.sync(type);assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/hosts/'&&x.body[0].agent_version==='2.0.0-0'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/networks/'&&x.body.NetworkID==='net'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/containers/'&&x.body.ContainerID==='abc'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/images/'&&x.body.name==='nginx'));});
+test('NetBox inventory synchronization covers every resource and host metadata',async t=>{const {agent,callbacks}=await setup(t);for(const type of ['endpoint','networks','volumes','images','containers','registries'])await agent.sync(type);assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/hosts/'&&x.body[0].agent_version===`${packageInfo.version}-0`));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/networks/'&&x.body.NetworkID==='net'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/containers/'&&x.body.ContainerID==='abc'));assert.ok(callbacks.some(x=>x.url==='/api/plugins/docker/images/'&&x.body.name==='nginx'));});
 test('network discovery maps the Docker null driver to the legacy None callback value', async t => {
  const { api, agent, docker, callbacks } = await setup(t);
  docker.listNetworks = async () => [
@@ -251,7 +252,7 @@ test('NetBox TLS rejects untrusted certificates unless DISABLE_SSL_CHECK is expl
 });
 test('Docker progress error frames fail image pulls and create danger journals',async t=>{const {agent,docker,callbacks}=await setup(t);docker.pull=async()=>{const stream=new PassThrough();stream.end('{"error":"registry denied access"}\n');return stream;};await assert.rejects(agent.write('POST','images',{id:11,name:'private/app',version:'latest',size:0,ImageID:null}),/registry denied access/);assert.ok(callbacks.some(x=>x.url==='/api/extras/journal-entries/'&&x.body.kind==='danger'));assert.equal(callbacks.filter(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/images/').length,0);});
 test('terminal styles use unique per-page CSP nonces without inline script permissions',async t=>{const {api}=await setup(t);const first=await api('/'),second=await api('/');const csp=first.headers.get('content-security-policy');const html=await first.text();assert.ok(!csp.includes('unsafe-inline'));assert.match(csp,/script-src 'self';/);const nonce=html.match(/name="style-nonce" content="([^"]+)"/)[1];assert.ok(csp.includes(`'nonce-${nonce}'`));assert.notEqual(csp,second.headers.get('content-security-policy'));});
-test('volume size options follow the daemon storage driver and registry discovery creates remote associations',async t=>{const {agent,docker,calls,netbox}=await setup(t);docker.info=async()=>({Driver:'btrfs'});await agent.write('POST','volumes',{name:'bounded',driver:'local',max_size:128});assert.deepEqual(calls.find(x=>x.path==='/volumes/create').body.DriverOpts,{o:'size=128m'});docker.listImages=async()=>[{Id:'sha256:registry',RepoTags:['private.example:5000/ns/app:v1'],Size:1}];const original=netbox.resource.bind(netbox);netbox.resource=async(method,type,data,suffix)=>type==='registries'?(method==='GET'?{results:[]}:[{id:42,name:'private.example:5000'}]):original(method,type,data,suffix);const registries=await agent.registries();assert.equal(registries[0].name,'private.example:5000');assert.equal(registries[0].id,42);assert.deepEqual(registries[0].images,['private.example:5000/ns/app:v1']);});
+test('volume limits require host quota access and registry discovery creates remote associations',async t=>{const {agent,docker,calls,netbox}=await setup(t);docker.info=async()=>({Driver:'btrfs'});await assert.rejects(agent.write('POST','volumes',{name:'bounded',driver:'local',max_size:128}), {statusCode:503});assert.ok(!calls.some(x=>x.path==='/volumes/create'));docker.listImages=async()=>[{Id:'sha256:registry',RepoTags:['private.example:5000/ns/app:v1'],Size:1}];const original=netbox.resource.bind(netbox);netbox.resource=async(method,type,data,suffix)=>type==='registries'?(method==='GET'?{results:[]}:[{id:42,name:'private.example:5000'}]):original(method,type,data,suffix);const registries=await agent.registries();assert.equal(registries[0].name,'private.example:5000');assert.equal(registries[0].id,42);assert.deepEqual(registries[0].images,['private.example:5000/ns/app:v1']);});
 test('lifecycle events are gated during operations while pause/unpause continue to synchronize',async t=>{const {agent,docker,callbacks}=await setup(t);let release,started;const entered=new Promise(resolve=>{started=resolve});const blocked=new Promise(resolve=>{release=resolve});const get=docker.getContainer.bind(docker);docker.getContainer=id=>{const container=get(id);container.start=async()=>{started();await blocked;};return container;};const operation=agent.write('PUT','containers',{id:7,ContainerID:'abc',operation:'start'});await entered;assert.equal(agent.activeOperations,1);const before=callbacks.filter(x=>x.method==='PATCH').length;await agent.event({Type:'container',Action:'start',Actor:{ID:'abc'}});assert.equal(callbacks.filter(x=>x.method==='PATCH').length,before);await agent.event({Type:'container',Action:'pause',Actor:{ID:'abc'}});assert.ok(callbacks.filter(x=>x.method==='PATCH').length>before);release();await operation;assert.equal(agent.activeOperations,0);const after=callbacks.length;await agent.event({Type:'container',Action:'die',Actor:{ID:'abc'}});assert.ok(callbacks.length>after);});
 test('operation none retains the legacy combined restart-policy update and optional rename',async t=>{const {agent,calls,callbacks}=await setup(t);await agent.write('PUT','containers',{id:7,ContainerID:'demo',name:'saved-name',operation:'none',restart_policy:'always'});assert.ok(calls.some(x=>x.path==='/containers/abc/update'&&x.body.RestartPolicy.Name==='always'));assert.ok(calls.some(x=>x.path==='/containers/abc/rename'&&x.query==='?name=saved-name'));assert.equal(callbacks.some(x=>x.method==='PATCH'),false);});
 test('cross-site browser GETs cannot register an endpoint or trigger inventory writes without an Origin header',async t=>{const {api,store}=await setup(t);const original=store.config.netbox_url;const headers={'sec-fetch-site':'cross-site'};assert.equal((await api('/api/engine/endpoint?url=https://attacker.example','GET',undefined,headers)).status,403);assert.equal(store.config.netbox_url,original);assert.equal((await api('/api/engine/containers','GET',undefined,headers)).status,403);assert.equal((await api('/api/engine/endpoint','GET')).status,202);});
@@ -633,4 +634,94 @@ test('metrics HTTP responses keep container series stable when only elapsed time
  container.Status='Up 6 hours (unhealthy)';const later=await(await api('/metrics')).text();
  assert.equal(later,first);assert.match(later,/state="running", status="running \(unhealthy\)"/);
  assert.ok(!later.includes('10 seconds'));assert.ok(!later.includes('6 hours'));
+});
+
+
+test('HTTP volumes reject unsupported limits before acknowledgment and create unlimited real named volumes', async t => {
+ const { api, calls, agent } = await setup(t);
+ for (const max_size of [1024, 5120, 10240]) {
+  const response = await api('/api/engine/volumes', 'POST', { data: { name: 'bounded', max_size } });
+  assert.equal(response.status, 503);
+ }
+ for (const max_size of [-1, 0.5, '1024', null]) assert.equal((await api('/api/engine/volumes', 'POST', { data: { name: 'invalid', max_size } })).status, 400);
+ assert.ok(!calls.some(c => c.path === '/volumes/create'));
+ const data = { name: 'unlimited', driver: 'local', max_size: 0 };
+ const created = await api('/api/engine/volumes', 'POST', { data });
+ assert.equal(created.status, 202); assert.deepEqual(await created.json(), { data });
+ assert.deepEqual(calls.find(c => c.path === '/volumes/create').body, { Name: 'unlimited', Driver: 'local' });
+ assert.equal((await api('/api/engine/volumes', 'PUT', { data: { name: 'unlimited', max_size: 5120 } })).status, 503);
+ assert.equal(agent.activeOperations, 0);
+ agent.pruning = true;
+ await assert.rejects(agent.volumeChange('POST', { name: 'blocked' }), { statusCode: 409 });
+ agent.pruning = false;
+});
+
+test('volume webhooks wait for agent quota operations and synchronize kernel limits to manager', async t => {
+ const { api, agent, docker, callbacks, store } = await setup(t);
+ store.volumeQuotas = { next_project:1000000, volumes:{} };
+ let release, entered;
+ const blocked = new Promise(resolve => { release = resolve; });
+ const ready = new Promise(resolve => { entered = resolve; });
+ const tools = { filesystem:()=> '8:1', project:()=>({id:1000000,inherit:true}), quota:(directory, project, limit)=>({max_size:5120,usage_bytes:0,soft:0,inodes:0}) };
+ let created = false;
+ const volume = {Name:'data',Driver:'local',Scope:'local',Mountpoint:'/var/lib/docker/volumes/data/_data',Labels:{'com.saashup.quota.project':'1000000'}};
+ docker.info = async()=>({DockerRootDir:'/var/lib/docker'});
+ docker.listVolumes = async()=>({Volumes:created?[{...volume}]:[]});
+ docker.createVolume = async()=>{entered(); await blocked; created=true;};
+ docker.getVolume = ()=>({inspect:async()=>volume,remove:async()=>{created=false;}});
+ let reads = 0;
+ agent.volumeManager.tools = tools;
+ agent.volumeManager.enabled = true;
+ agent.volumeManager.statfs = async()=>({bavail:1024*1024,bsize:1048576});
+ agent.volumeManager.readdir = async()=>[];
+ tools.quota = (directory,project,limit)=>({max_size:reads++===0?0:5120,usage_bytes:0,soft:0,inodes:0});
+ let settled = false;
+ const creation = api('/api/engine/volumes','POST',{data:{name:'data',max_size:5120}}).then(r=>{settled=true;return r;});
+ await ready; assert.equal(settled,false);
+ await assert.rejects(agent.prune('volumes',{}),{statusCode:409});
+ release(); assert.equal((await creation).status,202);
+ assert.equal((await api('/api/engine/volumes','PUT',{data:{name:'data',max_size:0}})).status,202);
+ assert.equal((await(await api('/api/volumes')).json()).Volumes[0].max_size,5120);
+ await agent.sync('volumes');
+ assert.ok(callbacks.some(c=>c.body?.name==='data'&&c.body.max_size===5120));
+ assert.equal((await api('/api/engine/volumes')).status,202);await Promise.all(agent.jobs);
+ assert.equal((await api('/api/engine/volumes','DELETE',{data:{name:'data'}})).status,202);
+});
+
+test('GET /info returns the agent version from package.json', async t => {
+ const { api } = await setup(t);
+ const response = await api('/info');
+ assert.equal(response.status, 200);
+ const info = await response.json();
+ assert.equal(info.version, packageInfo.version);
+});
+
+test('overview info reports quota availability and preserves other host information on probe failure',async t=>{
+ const {api,agent}=await setup(t);
+ agent.volumeManager.host=async()=>'/var/lib/docker';
+ agent.volumeManager.statfs=async()=>({bavail:10240,bsize:1048576});
+ agent.volumeManager.tools={filesystem:async()=>'/dev/sda1',run:async tool=>tool==='id'?'0':'version',project:async()=>({id:0,inherit:false}),quota:async()=>({})};
+ let response=await api('/info');assert.equal(response.status,200);
+ let info=await response.json();assert.equal(info.volumeQuotas.available,true);assert.equal(info.docker.Version,'29.5.2');
+ agent.volumeManager.tools.run=async()=>{throw Error('setquota is not installed');};
+ response=await api('/info');assert.equal(response.status,200);
+ info=await response.json();assert.deepEqual(info.volumeQuotas,{available:false,reason:'setquota is not installed'});assert.equal(info.docker.Version,'29.5.2');
+});
+
+test('existing volume API rejects quota over-allocation on creation and resize', async t => {
+ const { api, agent, docker, store, calls } = await setup(t);
+ const volume = { Name:'allocated', Driver:'local', Scope:'local', Mountpoint:'/var/lib/docker/volumes/allocated/_data', Labels:{'com.saashup.quota.project':'1000000'} };
+ store.volumeQuotas = { next_project:1000001, volumes:{allocated:{project:1000000}} };
+ docker.info = async()=>({DockerRootDir:'/var/lib/docker'});
+ docker.listVolumes = async()=>({Volumes:[volume]});
+ docker.getVolume = ()=>({inspect:async()=>volume});
+ agent.volumeManager.statfs = async()=>({bavail:10240,bsize:1048576});
+ agent.volumeManager.tools = { filesystem:async()=>'/dev/sda1', project:async()=>({id:1000000,inherit:true}), quota:async()=>({max_size:10240,usage_bytes:0}) };
+ for (const [method, name, max_size] of [['POST','excess',1024],['PUT','allocated',11264]]) {
+  const response = await api('/api/engine/volumes',method,{data:{name,max_size}});
+  assert.equal(response.status,409);
+  assert.match((await response.json()).message,/Insufficient volume storage/);
+ }
+ assert.ok(!calls.some(c=>c.path==='/volumes/create'));
+ assert.equal(store.volumeQuotas.next_project,1000001);
 });

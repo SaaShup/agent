@@ -3,9 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-suite_names=('Unit and integration' 'CodeQL security' 'Docker compatibility' 'Browser UI')
-suite_results=(SKIPPED SKIPPED SKIPPED SKIPPED)
-suite_seconds=(0 0 0 0)
+suite_names=('Unit and integration' 'CodeQL security' 'Docker compatibility' 'Browser UI' 'Host volume quotas')
+suite_results=(SKIPPED SKIPPED SKIPPED SKIPPED SKIPPED)
+suite_seconds=(0 0 0 0 0)
 active_suite=-1
 suite_started=0
 test_started=$SECONDS
@@ -75,4 +75,8 @@ pass_suite
 begin_suite 3
 "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 dind netbox agent
 NETWORK="${COMPOSE_PROJECT_NAME}_default" BASE_URL=http://agent:1880 DIND_URL=http://dind:2375 npm run test:browser
+pass_suite
+
+begin_suite 4
+npm run test:quota
 pass_suite

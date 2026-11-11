@@ -15,10 +15,10 @@ chmod 600 "$HOME/.ssh/authorized_keys"
 export SSH_AUTHORIZED_KEYS_FILE="$HOME/.ssh/authorized_keys"
 export SSH_KEYS_UID="$(id -u)" SSH_KEYS_GID="$(id -g)"
 export SSH_KEYS_ACCOUNT="$(id -un)"
-npm run build
+npm run build:ssh
 ```
 
-`touch` preserves existing contents. `npm run build` checks the source file and
+`touch` preserves existing contents. `npm run build:ssh` checks the source file and
 starts Compose with `docker-compose.ssh.yml`. Only this file is mounted at
 `/host-ssh/authorized_keys`, read-write, with automatic source creation disabled.
 The source defaults to `$HOME/.ssh/authorized_keys`; the account label defaults
@@ -31,7 +31,11 @@ are mounted.
 The agent needs write access to its persistent `/data` volume as well. If you use
 a UID other than 1000 with an existing volume, provision that volume for the
 chosen UID/GID before starting; the container does not change its ownership.
-`npm run build:no-ssh` starts the normal agent without host SSH key management.
+`npm run build:light` starts the normal agent without host SSH key management.
+To enable volume quotas as well, use `npm run build` (or `npm run build:all`) with the same SSH
+environment variables. Follow the [combined deployment instructions](VOLUME-QUOTAS.md#enable-ssh-key-management-and-quotas-together)
+for host quota prerequisites. That configuration runs the agent as root while
+checking the authorized keys file against `SSH_KEYS_UID`.
 When migrating from the previous helper setup, stop that helper; its service,
 commands, and `SSH_KEYS_SOCKET` settings are no longer used.
 

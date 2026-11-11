@@ -142,6 +142,11 @@ function containerCard(c) {
   }); termBtn.dataset.tab = 'terminal'; tabs.append(execBtn, termBtn); card.append(tabs, pane); return card;
 }
 function pluginData(c) { return { ContainerID: c.Id, name: c.Name.replace(/^\//, ''), image: { ImageID: c.Image }, hostname: c.Config.Hostname, env: (c.Config.Env || []).map(x => ({ var_name: x.split('=')[0], value: x.slice(x.indexOf('=') + 1) })), labels: Object.entries(c.Config.Labels || {}).map(([key,value]) => ({key,value})), cmd: c.Config.Cmd, cap_add: c.HostConfig.CapAdd, cap_drop: c.HostConfig.CapDrop, restart_policy: c.HostConfig.RestartPolicy?.Name || 'no', memory_limit: c.HostConfig.Memory || 0, cpu_limit: (c.HostConfig.NanoCpus || 0) / 1e9, network_settings: Object.entries(c.NetworkSettings.Networks || {}).map(([name,n]) => ({network:{name,NetworkID:n.NetworkID}})), mounts: (c.Mounts || []).filter(x=>x.Type==='volume').map(x=>({source:x.Destination,volume:{name:x.Name},read_only:!x.RW})), binds: (c.Mounts || []).filter(x=>x.Type==='bind').map(x=>({host_path:x.Source,container_path:x.Destination,read_only:!x.RW})), ports: Object.entries(c.HostConfig.PortBindings || {}).map(([k,v])=>({private_port:k.split('/')[0],type:k.split('/')[1],public_port:Number(v?.[0]?.HostPort||0)})), log_driver:c.HostConfig.LogConfig?.Type, log_driver_options:Object.entries(c.HostConfig.LogConfig?.Config||{}).map(([option_name,value])=>({option_name,value})), sysctls:Object.entries(c.HostConfig.Sysctls||{}).map(([key,value])=>({key,value})), pid_mode:c.HostConfig.PidMode, secOpt:c.HostConfig.SecurityOpt, extra_hosts:c.HostConfig.ExtraHosts, devices:(c.HostConfig.Devices||[]).map(x=>({host_path:x.PathOnHost,container_path:x.PathInContainer})) }; }
+function storageSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'Unavailable';
+  const unit = Math.min(4, Math.floor(Math.log2(Math.max(1, bytes)) / 10));
+  return `${(bytes / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${['B', 'KiB', 'MiB', 'GiB', 'TiB'][unit]}`;
+}
 function resourceCard(type, r) {
   if (type === 'containers') return containerCard(r);
   const card = node('article', undefined, 'card'); const name = r.Name || r.name || r.RepoTags?.[0] || r.Id;
@@ -184,6 +189,20 @@ function resourceCard(type, r) {
   }
   const actions = node('div', undefined, 'actions');
   actions.append(button('Inspect', () => { const pre = card.querySelector('pre'); if (pre) pre.remove(); else card.append(details(r)); }));
+  if (type === 'volumes') {
+    const used = Number.isFinite(r.usage_bytes) && r.usage_bytes >= 0 ? r.usage_bytes : r.UsageData?.Size;
+    const unlimited = r.max_size === 0 || r.max_size === undefined && r.Driver === 'local' && (!r.Options || !Object.keys(r.Options).length);
+    const size = r.max_size > 0 ? storageSize(r.max_size * 1048576) : unlimited ? 'Unlimited' : 'Not reported';
+    const storage = node('dl', undefined, 'volume-storage');
+    storage.append(node('dt', 'Used'), node('dd', storageSize(used), 'volume-used'), node('dt', 'Size'), node('dd', size, 'volume-size'));
+    card.append(storage);
+    if (r.max_size > 0 && Number.isFinite(used) && used >= 0) {
+      const capacity = r.max_size * 1048576;
+      const bar = node('progress'); bar.max = capacity; bar.value = Math.min(used, capacity); bar.setAttribute('aria-label', `Storage used for ${name}`);
+      card.append(bar, node('p', `${(used / capacity * 100).toFixed(1)}% used`, 'meta'));
+    }
+    if (r.project_id && state.volumeQuotasAvailable) actions.append(button('Change limit', () => edit('volumes', 'PUT', { name: r.Name, driver: 'local', max_size: r.max_size })));
+  }
   if (type === 'images') actions.append(button('Pull', async () => { const index = name.lastIndexOf(':'); notify('Pulling image'); await api('/api/engine/images','POST',{data:{name:name.slice(0,index),version:name.slice(index+1),force:true}}); dismiss(); }));
   if (type !== 'registries') actions.append(button('Remove', async () => { if (!confirm(`Remove ${name}?`)) return; notify(type === 'images' ? 'Delete image' : `Delete ${type}`); await api(`/api/engine/${type}`, 'DELETE', { data: { name, ImageID: r.Id } }); await waitFor(async () => { const list = await api(`/api/${type}`); return !(list.Volumes || list).some(x => type === 'images' ? x.Id === r.Id : x.Name === name); }); await refresh(); dismiss(); }, 'danger'));
   card.append(actions); return card;
@@ -198,6 +217,10 @@ async function refresh() {
   $('main').setAttribute('aria-busy', 'true'); $('#error').hidden = true;
   try {
     const info = await api('/info');
+    state.volumeQuotasAvailable = info.volumeQuotas?.available === true;
+    state.volumeCapacity = info.volumeQuotas?.capacity;
+    $('#info-list').replaceChildren();
+    for (const [label,value] of Object.entries({ 'Agent Version': info.version, 'Volume quotas': info.volumeQuotas?.available ? 'Available — ext4 project quotas' : 'Unavailable', 'Engine API': info.docker.ApiVersion, 'Engine Version': info.docker.Version, 'Host': info.dockerInfo?.Name, 'System uptime': formatUptime(info.uptime?.system), 'Agent uptime': formatUptime(info.uptime?.agent), 'Operating system': info.dockerInfo?.OperatingSystem, 'Architecture': info.docker.Arch, 'Management URL': info.config?.netbox_url || 'Not connected' })) $('#info-list').append(node('dt',label),node('dd',value || '—'));
     state.agentContainerId = info.containerId;
     state.sshKeysEnabled = info.sshKeysEnabled;
     $('#ssh-reload').hidden = !state.sshKeysEnabled;
@@ -207,8 +230,7 @@ async function refresh() {
     types.forEach((type, i) => { const data = results[i+1]; state[type] = data.Volumes || data; });
     types.forEach(type => { $(`#${type}_num`).textContent = state[type].length; $(`#${type}-count`).textContent = state[type].length; $(`#${type}-list`).replaceChildren(...state[type].map(r => resourceCard(type,r))); });
     renderContainers(); $('#connection').textContent = info.docker === 'error' ? 'Engine unavailable' : `Engine ${info.docker.Version} · Management ${info.configured === 'ok' ? 'connected' : 'not configured'}`;
-    $('#info-list').replaceChildren();
-    for (const [label,value] of Object.entries({ 'Agent Version': info.version, 'Engine API': info.docker.ApiVersion, 'Engine Version': info.docker.Version, 'Host': info.dockerInfo?.Name, 'System uptime': formatUptime(info.uptime?.system), 'Agent uptime': formatUptime(info.uptime?.agent), 'Operating system': info.dockerInfo?.OperatingSystem, 'Architecture': info.docker.Arch, 'Management URL': info.config?.netbox_url || 'Not connected' })) $('#info-list').append(node('dt',label),node('dd',value || '—'));
+
     $('#summary').replaceChildren(...types.slice(0,4).map(t => { const box = node('article'); box.append(node('span', t.toUpperCase()),node('strong',state[t].length)); return box; }));
     const values = { Images: usage.images.size, Containers: usage.containers.size_rootfs, Volumes: usage.volumes, 'Build cache': usage.build_cache }; const total = Math.max(1,...Object.values(values));
     $('#system-usage-chart').replaceChildren();
@@ -218,9 +240,29 @@ async function refresh() {
 let editType, editMethod;
 function edit(type, method = 'POST', data) {
   if (type === 'containers' && method === 'PUT' && isAgent({ Id: data.ContainerID })) throw Error('The agent cannot recreate its own container');
-  editType = type; editMethod = method; $('#resource-title').textContent = `${method === 'PUT' ? 'Recreate' : type === 'images' ? 'Pull' : 'Create'} ${type}`;
+  editType = type; editMethod = method; $('#resource-title').textContent = `${method === 'PUT' ? (type === 'volumes' ? 'Update' : 'Recreate') : type === 'images' ? 'Pull' : 'Create'} ${type}`;
   const templates = { containers: {name:'my-container',state:'none',memory_limit:0,cpu_limit:0,image:{name:'nginx',version:'alpine'}}, images:{name:'nginx',version:'alpine',size:0,ImageID:null}, networks:{name:'my-network',driver:'bridge',state:'creating'}, volumes:{name:'my-volume',driver:'local',max_size:0} };
-  $('#resource-data').value = JSON.stringify(data || templates[type],null,2); $('#resource-hint').textContent = method === 'PUT' ? 'Review the configuration. Submitting recreates the container to apply changes.' : 'Review the resource configuration before submitting.'; $('#resource-dialog').showModal();
+  $('#volume-limit-label').hidden = type !== 'volumes';
+  $('#volume-name-label').hidden = type !== 'volumes';
+  $('#volume-type-label').hidden = type !== 'volumes';
+  $('#volume-type').disabled = type !== 'volumes';
+  $('#volume-type').value = data?.driver || 'local';
+  $('#volume-name').disabled = type !== 'volumes';
+  $('#volume-name').readOnly = method === 'PUT';
+  $('#volume-name').value = data?.name || 'my-volume';
+  $('#resource-data-label').hidden = type === 'volumes';
+  $('#resource-data').disabled = type === 'volumes';
+  $('#volume-limit').disabled = !state.volumeQuotasAvailable;
+  $('#volume-limit option[data-custom]')?.remove();
+  if (data?.max_size && ![1024, 5120, 10240].includes(data.max_size)) {
+    const option = node('option', `${data.max_size} MiB`);
+    option.value = String(data.max_size); option.dataset.custom = 'true'; $('#volume-limit').append(option);
+  }
+  const allocation = state.volumeCapacity?.volumes.find(v => v.name === data?.name);
+  const maximum = state.volumeCapacity ? state.volumeCapacity.available_bytes + (allocation ? Math.max(allocation.limit_bytes, allocation.usage_bytes) : 0) : 0;
+  for (const option of $('#volume-limit').options) option.disabled = Number(option.value) > 0 && (Number(option.value) * 1048576 > maximum || allocation && Number(option.value) * 1048576 < allocation.usage_bytes);
+  $('#volume-limit').value = String(data?.max_size || 0);
+  $('#resource-data').value = JSON.stringify(data || templates[type],null,2); $('#resource-hint').textContent = type === 'volumes' ? state.volumeQuotasAvailable ? `Available for this volume: ${storageSize(maximum)}. Limits include capacity already assigned to this volume. Unlimited volumes do not reserve space.` : 'Volume quotas are unavailable. Volumes can only be created with Unlimited storage.' : method === 'PUT' ? 'Review the configuration. Submitting recreates the container to apply changes.' : 'Review the resource configuration before submitting.'; $('#resource-dialog').showModal();
 }
 for (const b of document.querySelectorAll('[data-create]')) b.addEventListener('click',()=>edit(b.dataset.create));
 const pruneDescriptions = {
@@ -265,7 +307,7 @@ $('#prune-form').onsubmit = async e => {
   finally { pruneBusy = false; $('#confirm-prune').disabled = false; $('#cancel-prune').disabled = false; }
 };
 $('#cancel-resource').onclick = () => $('#resource-dialog').close();
-$('#resource-form').onsubmit = async e => { e.preventDefault(); try { const data = JSON.parse($('#resource-data').value); await api(`/api/engine/${editType}`,editMethod,{data}); $('#resource-dialog').close(); notify('Request accepted','The agent is processing the request. Refresh to check the result.'); dismiss(); } catch(e) { error(e); } };
+$('#resource-form').onsubmit = async e => { e.preventDefault(); try { const data = editType === 'volumes' ? { name: $('#volume-name').value, driver: $('#volume-type').value, max_size: state.volumeQuotasAvailable ? Number($('#volume-limit').value) : 0 } : JSON.parse($('#resource-data').value); await api(`/api/engine/${editType}`,editMethod,{data}); $('#resource-dialog').close(); if (editType === 'volumes') { await refresh(); notify('Volume updated'); } else notify('Request accepted','The agent is processing the request. Refresh to check the result.'); dismiss(); } catch(e) { error(e); } };
 $('#settings-form').onsubmit = async e => { e.preventDefault(); try { await api('/api/engine/endpoint?' + new URLSearchParams(new FormData(e.target))); notify('Connection saved'); dismiss(); } catch(e) { error(e); } };
 $('#disconnect').onclick = async () => { try { if (confirm('Disconnect this agent from the management server?')) { await api('/api/engine/endpoint','DELETE'); await refresh(); } } catch(e) { error(e); } };
 $('#sync-registries').onclick = async () => { try { await api('/api/engine/registries'); notify('Registry discovery requested'); dismiss(); } catch(e) { error(e); } };
