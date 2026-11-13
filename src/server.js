@@ -1,5 +1,6 @@
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import https from 'node:https';
+import { randomBytes, X509Certificate } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { authenticated, sameOrigin } from './auth.js';
 import { collect } from './docker.js';
@@ -7,6 +8,7 @@ import { resourceLimits } from './mapping.js';
 import { metrics } from './metrics.js';
 import { terminals } from './terminal.js';
 import { hostSshKeys } from './host-ssh.js';
+import { AccessControl } from './access-control.js';
 const assets = { '/theme.js': ['theme.js', 'text/javascript'], '/saashup-logo.svg': ['saashup-logo.svg', 'image/svg+xml'], '/vendor/swagger-ui-bundle.js': ['../node_modules/swagger-ui-dist/swagger-ui-bundle.js', 'text/javascript'], '/vendor/swagger-ui.css': ['../node_modules/swagger-ui-dist/swagger-ui.css', 'text/css'], '/doc.css': ['doc.css', 'text/css'], '/vendor/xterm.js': ['../node_modules/@xterm/xterm/lib/xterm.mjs', 'text/javascript'], '/vendor/xterm.css': ['../node_modules/@xterm/xterm/css/xterm.css', 'text/css'], '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/doc': ['doc.html', 'text/html'], '/doc.js': ['doc.js', 'text/javascript'], '/openapi': ['openapi.yml', 'application/yaml'], '/openapi.yml': ['openapi.yml', 'application/yaml'], '/openapi.json': ['openapi.json', 'application/json'] };
 function send(res, status, body, type = 'application/json') { if (res.destroyed || res.writableEnded) return; res.writeHead(status, { 'Content-Type': `${type}; charset=utf-8` }); res.end(type === 'application/json' && !Buffer.isBuffer(body) ? JSON.stringify(body) : body); }
 async function body(req) {
@@ -16,17 +18,37 @@ async function body(req) {
   try { const data = JSON.parse(Buffer.concat(chunks)); if (data === null || Array.isArray(data) || typeof data !== 'object') throw Error(); return data; }
   catch { throw Object.assign(new Error('Invalid JSON object'), { statusCode: 400 }); }
 }
-export function createServer(agent) {
+export function createServer(agent, tlsOptions) {
+  const access = new AccessControl(agent.store || { save: async () => {} });
   let terminal;
-  const server = http.createServer({ requestTimeout: 30000, headersTimeout: 10000, maxHeaderSize: 16384 }, async (req, res) => {
+  const server = (tlsOptions ? https : http).createServer({ ...tlsOptions, requestTimeout: 30000, headersTimeout: 10000, maxHeaderSize: 16384 }, async (req, res) => {
     const styleNonce = randomBytes(18).toString('base64');
     res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Cache-Control', 'no-store'); res.setHeader('X-Frame-Options', 'DENY'); res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${styleNonce}'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`);
     try {
+      if (!access.allowed(req)) return send(res, 403, { message: 'Your IP address is not allowed' });
       const url = new URL(req.url, 'http://localhost'); const route = url.pathname;
       if (route === '/doc') res.setHeader('Content-Security-Policy', res.getHeader('Content-Security-Policy') + "; style-src-attr 'unsafe-inline'; img-src 'self' data:");
       if (!await authenticated(req)) { res.setHeader('WWW-Authenticate', 'Basic realm="Paashup Agent", charset="UTF-8"'); return send(res, 401, { message: 'Unauthorized' }); }
+      if (!access.allowed(req)) return send(res, 403, { message: 'Your IP address is not allowed' });
       if ((req.method !== 'GET' && req.method !== 'HEAD' || route.startsWith('/api/engine/')) && !sameOrigin(req)) return send(res, 403, { message: 'Cross-origin request rejected' });
+      if (route === '/admin/access-control') {
+        if (req.method === 'GET') return send(res, 200, access.status(req));
+        if (req.method === 'PUT') {
+          const input = await body(req);
+          if (!access.allowed(req)) return send(res, 403, { message: 'Your IP address is not allowed' });
+          const result = await access.update(input, req);
+          terminal.recheck();
+          return send(res, 200, result);
+        }
+        res.setHeader('Allow', 'GET, PUT'); return send(res, 405, { message: 'Method not allowed' });
+      }
+      if (route === '/api/tls/certificate') {
+        if (!tlsOptions) return send(res, 404, { message: 'HTTPS is not enabled' });
+        if (!['GET', 'HEAD'].includes(req.method)) { res.setHeader('Allow', 'GET, HEAD'); return send(res, 405, { message: 'Method not allowed' }); }
+        res.setHeader('Content-Disposition', 'attachment; filename="paashup-agent.crt"');
+        return send(res, 200, req.method === 'HEAD' ? '' : new X509Certificate(tlsOptions.ca).toString(), 'application/x-pem-file');
+      }
       if (route === '/api/ssh-keys') {
         if (!['GET', 'POST', 'DELETE'].includes(req.method)) { res.setHeader('Allow', 'GET, POST, DELETE'); return send(res, 405, { message: 'Method not allowed' }); }
         const result = await hostSshKeys(req.method, req.method === 'GET' ? undefined : await body(req));
@@ -91,6 +113,8 @@ export function createServer(agent) {
         if (req.method === 'GET' && type === 'endpoint' && url.searchParams.has('url')) {
           const value = process.env.NETBOX_URL || url.searchParams.get('url');
           if (value && !['http:', 'https:'].includes(new URL(value).protocol)) return send(res, 400, { message: 'Management URL must use HTTP or HTTPS' });
+          await access.learn(req);
+          terminal.recheck();
           Object.assign(agent.store.config, { netbox_url: value, id: url.searchParams.get('id') || '', netbox_token: url.searchParams.get('token') || '', endpoint: url.searchParams.get('endpoint') || '' }); await agent.store.save();
         }
         if (type === 'containers' && (req.method === 'POST' || (req.method === 'PUT' && input.data?.operation === 'recreate'))) resourceLimits(input.data);
@@ -100,7 +124,12 @@ export function createServer(agent) {
         // Preserve the original acknowledgment payload: body for writes, {} for reads.
         send(res, 202, input);
         agent.enqueue(`${type}:${input.data?.ContainerID || input.data?.name || ''}`, async () => {
-          if (req.method !== 'GET') return agent.write(req.method, type, input.data);
+          if (req.method !== 'GET') {
+            await agent.write(req.method, type, input.data);
+            if (req.method === 'DELETE' && type === 'endpoint') terminal.reset();
+            else terminal.recheck();
+            return;
+          }
           if (type !== 'endpoint') return agent.sync(type);
           // Registration fans out to every inventory, as the legacy flow did.
           // One rejected inventory must not prevent the others from importing.
@@ -112,7 +141,7 @@ export function createServer(agent) {
       return send(res, 404, { message: 'Not found' });
     } catch (error) { const status = error.statusCode || 502; send(res, status >= 400 && status < 600 ? status : 500, { message: error.message }); }
   });
-  terminal = terminals(server, agent.docker);
+  terminal = terminals(server, agent.docker, req => access.allowed(req));
   server.on('close', () => terminal.close());
   server.closeTerminals = () => terminal.close();
   return server;
