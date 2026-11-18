@@ -113,6 +113,10 @@ export class Volumes {
     if (method === 'POST' && existing) throw invalid('Volume already exists');
     const record = this.store.volumeQuotas?.volumes[name];
     if (method === 'DELETE' && !record) return this.docker.getVolume(name).remove();
+    if (method === 'PUT' && existing && !record) {
+      if (limit) throw invalid('Only volumes created by this agent can have their limit changed');
+      return { name, max_size: 0 };
+    }
     if (method === 'POST' && !limit && (!this.enabled || !(await this.capabilities()).available)) return this.docker.createVolume({ Name: name, Driver: 'local' });
     const root = await this.host();
     if (method === 'POST') {

@@ -94,7 +94,7 @@ export class Agent {
       await this.netbox.resource('PATCH', 'hosts', [{ id: Number(host || 0), docker_api_version: version.ApiVersion, agent_version: `${this.version}-${this.store.config.flows}`, state: 'running', operation: 'none' }]);
     } else if (type === 'containers') { for (const c of await this.containers()) await this.netbox.resource('POST', type, containerRecord(c, host)); }
     else if (type === 'networks') { for (const n of await this.docker.listNetworks()) await this.netbox.resource('POST', type, { host, name: n.Name, driver: n.Driver === 'null' ? 'None' : n.Driver ?? 'None', NetworkID: n.Id, state: 'created' }); }
-    else if (type === 'volumes') { for (const v of (await this.volumes()).Volumes) await this.netbox.resource('POST', type, { host, name: v.Name, driver: v.Driver, ...(v.max_size !== undefined ? { max_size: v.max_size } : {}) }); }
+    else if (type === 'volumes') { for (const v of (await this.volumes()).Volumes) await this.netbox.resource('POST', type, { host, name: v.Name, driver: v.Driver, state: 'created', ...(v.max_size !== undefined ? { max_size: v.max_size } : {}) }); }
     else if (type === 'images') { await this.registries(); for (const i of await this.docker.listImages({ digests: true })) await this.netbox.resource('POST', type, imageRecord(i, host, this.store.registries)); }
   }
   async callback(c, d) {
@@ -130,7 +130,7 @@ export class Agent {
       if (method === 'POST') {
         if (type === 'containers' && d.name && d.state === 'none') { const c = await this.docker.createContainer(createOptions(d)); await this.callback(c, d); await this.netbox.journal('container', d.id, 'success', 'container created'); }
         if (type === 'networks' && d.state === 'creating') { const n = await this.docker.createNetwork({ Name: d.name, Driver: d.driver }); await this.netbox.resource('PATCH', type, [{ id: d.id, NetworkID: n.id, state: 'created' }]); }
-        if (type === 'volumes') await this.volumeChange('POST', d);
+        if (type === 'volumes' && d.state !== 'created') { await this.volumeChange('POST', d); if (d.id != null) await this.netbox.resource('PATCH', type, [{ id: d.id, state: 'created' }]); }
         if (type === 'images' && ((d.size <= 0 && d.ImageID == null) || d.force === true)) {
           await this.netbox.journal('image', d.id, 'info', 'pulling image');
           const stream = await this.docker.pull(`${d.name}:${d.version}`, { authconfig: d.registry });
