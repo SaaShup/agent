@@ -94,7 +94,7 @@
         "operationId": "post_api_engine_endpoint"
       },
       "delete": {
-        "summary": "Disconnect from the management server",
+        "summary": "Disconnect from the manager, clear all IP access rules and terminal sessions, and disable IP filtering",
         "responses": {
           "202": {
             "description": "Success"
@@ -2117,6 +2117,69 @@
           }
         },
         "operationId": "delete_api_ssh_keys"
+      }
+    },
+    "/admin/access-control": {
+      "get": {
+        "summary": "Read IP access rules and the actual current peer address",
+        "responses": {
+          "200": {
+            "description": "Current access policy"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Source IP is not allowed"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace and persist IP access rules",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "enabled",
+                  "allowed_ips"
+                ],
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "allowed_ips": {
+                    "type": "array",
+                    "maxItems": 256,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "IPv4, IPv6 or CIDR entries"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rules saved; newly blocked terminal connections closed"
+          },
+          "400": {
+            "description": "Invalid rules"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Source IP or browser origin rejected"
+          },
+          "409": {
+            "description": "Rules would remove the current remote administrator address"
+          }
+        }
       }
     }
   },

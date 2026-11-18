@@ -1,6 +1,6 @@
 {
   "name": "paashup-agent",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Management agent for PaasHup",
   "type": "module",
   "private": true,
@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run build:all",
+    "build": "HTTP_SECURE=true npm run build:all",
     "build:light": "docker compose -f docker-compose.yml up -d --build",
     "build:ssh": "node scripts/check-ssh-file.mjs && docker compose -f docker-compose.yml -f docker-compose.ssh.yml up -d --build",
     "build:quota": "docker compose -f docker-compose.yml -f docker-compose.quotas.yml up -d --build",

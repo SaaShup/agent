@@ -25,9 +25,9 @@ docker compose up -d --build
 
 Open **http://localhost:1880** and sign in with `admin` / `saashup`.
 
-Before exposing the agent, set `API_USERNAME`, `API_PASSWORD`, and `HEALTHCHECK_PASSWORD` (the plaintext API password), then recreate the container. Docker socket access grants control of the host; restrict access and use HTTPS through a reverse proxy.
+Before exposing the agent, set `API_USERNAME`, `API_PASSWORD`, and `HEALTHCHECK_PASSWORD` (the plaintext API password), then recreate the container. Docker socket access grants control of the host; restrict access and enable HTTPS. Set `HTTP_SECURE=true` and `HTTP_SECURE_IP` to the agent's public IP for native HTTPS on port 1880 with an automatically generated, persistent local CA and HTTPS server certificate. See [HTTPS configuration and PaaShup certificate trust](docs/CONFIGURATION.md#native-https-on-port-1880).
 
-Use **Agent settings** to connect to Paashup/NetBox, or register the endpoint from the plugin. The dashboard also works standalone. Registry lists stay synchronized with local images.
+Use **Agent settings** to connect to Paashup/NetBox, or register the endpoint from the plugin. The dashboard also works standalone. Registry lists stay synchronized with local images. Manage trusted IPv4/IPv6 addresses and CIDR ranges in **Agent settings → IP access control**; see [allowlist setup and recovery](docs/CONFIGURATION.md#ip-access-control).
 
 Container creation and recreation accept optional `memory_limit` (bytes) and `cpu_limit` (CPU cores, including fractions). Both default to unlimited when omitted or set to `0`. See [resource limits and API examples](docs/OPERATIONS.md#container-memory-and-cpu-limits).
 
@@ -45,11 +45,11 @@ The build commands select which host features to enable:
 
 | Command | Features |
 | --- | --- |
-| `npm run build` | SSH key management and volume quotas (standard build) |
+| `npm run build` | HTTPS on port 1880, SSH key management and volume quotas (standard build) |
 | `npm run build:light` | Basic agent |
 | `npm run build:ssh` | Basic agent and SSH key management |
 | `npm run build:quota` | Basic agent and volume quotas |
-| `npm run build:all` | Alias for the standard feature set |
+| `npm run build:all` | SSH key management and volume quotas; uses the configured `HTTP_SECURE` value |
 
 For the standard build, configure the SSH file and host quota prerequisites; see the
 [combined setup](docs/VOLUME-QUOTAS.md#enable-ssh-key-management-and-quotas-together).

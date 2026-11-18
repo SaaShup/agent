@@ -8,6 +8,10 @@ services:
       - "1880:1880"
     environment:
       PORT: "1880"
+      HTTP_SECURE: ${HTTP_SECURE:-false}
+      HTTP_SECURE_IP: ${HTTP_SECURE_IP:-}
+      ALLOWED_IPS: ${ALLOWED_IPS:-}
+      IP_FILTERING: ${IP_FILTERING:-}
       DATAPATH: /data
       API_USERNAME: ${API_USERNAME:-admin}
       API_PASSWORD: ${API_PASSWORD:-}

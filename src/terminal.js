@@ -1,22 +1,24 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { authenticated, sameOrigin } from './auth.js';
 import { Writable } from 'node:stream';
-export function terminals(server, docker) {
+export function terminals(server, docker, allowRequest = () => true) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const allowed = new Map();
+  const requests = new WeakMap();
   let closed = false;
   server.on('upgrade', async (req, socket, head) => {
     socket.on('error', () => {});
     try {
       const url = new URL(req.url, 'http://localhost');
       const expiry = allowed.get(url.pathname);
-      if (!expiry || expiry < Date.now() || process.env.DISABLE_EXEC || !sameOrigin(req) || !await authenticated(req)) {
+      if (!allowRequest(req) || !expiry || expiry < Date.now() || process.env.DISABLE_EXEC || !sameOrigin(req) || !await authenticated(req) || !allowRequest(req)) {
         socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
       }
       wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
     } catch { socket.destroy(); }
   });
   wss.on('connection', async (ws, req) => {
+    requests.set(ws, req);
     let stream, exec;
     const send = (code, data = Buffer.alloc(0)) => { if (ws.readyState !== WebSocket.OPEN) return; if (ws.bufferedAmount > 8 * 1024 * 1024) { stream?.destroy(); ws.close(1013, 'Terminal output buffer exceeded'); return; } ws.send(Buffer.concat([Buffer.from([code]), Buffer.from(data)])); };
     ws.on('error', () => stream?.destroy());
@@ -46,7 +48,7 @@ export function terminals(server, docker) {
     } catch (error) { send(202, error.message); ws.close(); }
   });
   const reap = setInterval(() => { for (const [key, expiry] of allowed) if (expiry < Date.now()) allowed.delete(key); for (const client of wss.clients) { if (client.bufferedAmount > 8 * 1024 * 1024) client.terminate(); } }, 30000);
-  return { allow(id) { const path = `/ws/engine/containers/${id}/exec`; allowed.set(path, Date.now() + 300000); return path; }, close() {
+  return { reset() { allowed.clear(); for (const client of wss.clients) client.terminate(); }, recheck() { for (const client of wss.clients) if (!allowRequest(requests.get(client))) client.terminate(); }, allow(id) { const path = `/ws/engine/containers/${id}/exec`; allowed.set(path, Date.now() + 300000); return path; }, close() {
     if (closed) return;
     closed = true; clearInterval(reap);
     for (const client of wss.clients) {

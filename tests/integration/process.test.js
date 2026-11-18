@@ -58,6 +58,20 @@ test('agent entry point uses port 1880 and all interfaces when settings are omit
   assert.deepEqual(await process.exited, [0, null]);
 });
 
+test('agent entry point starts in HTTPS mode with a generated certificate', async t => {
+  let connected;
+  const ready = new Promise(resolve => { connected = resolve; });
+  const engine = await server(t, (req, res) => {
+    if (req.url.split('?')[0].endsWith('/images/json')) { res.setHeader('content-type', 'application/json'); res.end('[]'); return; }
+    res.writeHead(200); res.write('\n'); connected();
+  });
+  const process = await child(t, 'src/index.js', { DOCKER_HOST: engine, HTTP_SECURE: 'true', HTTP_SECURE_IP: '198.51.100.20' });
+  await ready;
+  assert.match(process.output, /listening on port 0 \(HTTPS\)/);
+  process.proc.kill('SIGTERM');
+  assert.deepEqual(await process.exited, [0, null]);
+});
+
 test('shutdown exits after its deadline when an in-flight manager request never completes', { timeout: 20000 }, async t => {
   let stopping;
   const stopped = new Promise(resolve => { stopping = resolve; });

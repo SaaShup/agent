@@ -22,6 +22,17 @@ function notify(title, text = 'Operation ongoing. Waiting for the agent…') { c
 function hideNotification() { clearTimeout(noticeTimer); $('#modalNotification').hidden = true; }
 function dismiss(delay = 1200) { clearTimeout(noticeTimer); noticeTimer = setTimeout(hideNotification, delay); }
 $('#close-notification').onclick = hideNotification;
+$('#tls-certificate-panel').hidden = location.protocol !== 'https:';
+$('#download-certificate').onclick = async event => {
+  event.preventDefault();
+  try {
+    const certificate = await api('/api/tls/certificate');
+    const url = URL.createObjectURL(new Blob([certificate], { type: 'application/x-pem-file' }));
+    const link = node('a'); link.href = url; link.download = 'paashup-agent.crt';
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { error(e); }
+};
 const buttonStyles = {
   start: ['M8 5l11 7-11 7z', 'positive'], unpause: ['M8 5l11 7-11 7z', 'positive'],
   stop: ['M6 6h12v12H6z', 'warning'], pause: ['M8 5v14M16 5v14', 'warning'],
@@ -61,6 +72,7 @@ function navigate() {
   $('#page-description').textContent = descriptions[id];
   $('#page-title').textContent = id === 'info' ? 'Overview' : id === 'ssh-keys' ? 'Host SSH keys' : id.charAt(0).toUpperCase() + id.slice(1);
   if (id === 'ssh-keys' && state.sshKeysEnabled) sshWork(loadSsh);
+  if (id === 'settings') loadAccess().catch(error);
 }
 function details(data) { const pre = node('pre', JSON.stringify(data, null, 2)); pre.setAttribute('aria-label', 'Inspection details'); return pre; }
 function isAgent(c) { return Boolean(state.agentContainerId && c.Id.startsWith(state.agentContainerId)); }
@@ -308,8 +320,30 @@ $('#prune-form').onsubmit = async e => {
 };
 $('#cancel-resource').onclick = () => $('#resource-dialog').close();
 $('#resource-form').onsubmit = async e => { e.preventDefault(); try { const data = editType === 'volumes' ? { name: $('#volume-name').value, driver: $('#volume-type').value, max_size: state.volumeQuotasAvailable ? Number($('#volume-limit').value) : 0 } : JSON.parse($('#resource-data').value); await api(`/api/engine/${editType}`,editMethod,{data}); $('#resource-dialog').close(); if (editType === 'volumes') { await refresh(); notify('Volume updated'); } else notify('Request accepted','The agent is processing the request. Refresh to check the result.'); dismiss(); } catch(e) { error(e); } };
+function renderAccess(result) {
+  state.accessCurrentIp = result.current_ip;
+  $('#access-current-ip').textContent = `Your current IP: ${result.current_ip} · PaaShup registration IP: ${result.manager_ip || 'Not learned'}`;
+  $('#ip-filtering').checked = result.enabled;
+  $('#allowed-ips').value = result.allowed_ips.join('\n');
+}
+async function loadAccess() { renderAccess(await api('/admin/access-control')); }
+$('#allow-current-ip').onclick = () => {
+  const entries = $('#allowed-ips').value.split(/[\s,]+/).filter(Boolean);
+  if (state.accessCurrentIp && !entries.includes(state.accessCurrentIp)) entries.push(state.accessCurrentIp);
+  $('#allowed-ips').value = entries.join('\n');
+};
+$('#access-control-form').onsubmit = async event => {
+  event.preventDefault(); $('#access-message').hidden = true;
+  try {
+    const result = await api('/admin/access-control', 'PUT', {
+      enabled: $('#ip-filtering').checked,
+      allowed_ips: $('#allowed-ips').value.split(/[\s,]+/).filter(Boolean),
+    });
+    renderAccess(result); $('#access-message').textContent = 'Access rules saved.'; $('#access-message').hidden = false;
+  } catch (e) { $('#access-message').textContent = e.message; $('#access-message').hidden = false; }
+};
 $('#settings-form').onsubmit = async e => { e.preventDefault(); try { await api('/api/engine/endpoint?' + new URLSearchParams(new FormData(e.target))); notify('Connection saved'); dismiss(); } catch(e) { error(e); } };
-$('#disconnect').onclick = async () => { try { if (confirm('Disconnect this agent from the management server?')) { await api('/api/engine/endpoint','DELETE'); await refresh(); } } catch(e) { error(e); } };
+$('#disconnect').onclick = async () => { try { if (confirm('Disconnect this agent from the management server?')) { await api('/api/engine/endpoint','DELETE'); await waitFor(async () => { const config = await api('/admin/config'); return !config.netbox_url && !config.netbox_token && !config.id; }); await loadAccess(); await refresh(); } } catch(e) { error(e); } };
 $('#sync-registries').onclick = async () => { try { await api('/api/engine/registries'); notify('Registry discovery requested'); dismiss(); } catch(e) { error(e); } };
 let sshRevision, sshBusy = false;
 function sshFailure(e) { $('#ssh-error').textContent = e.message; $('#ssh-error').hidden = false; }

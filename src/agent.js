@@ -107,7 +107,15 @@ export class Agent {
     if (operating) this.activeOperations++;
     try {
       if (method === 'DELETE') {
-        if (type === 'endpoint') { this.store.config = { netbox_url: '', netbox_token: '', ui: 1, id: '', endpoint: '', flows: '0' }; this.store.registries = []; await this.store.save(); return; }
+        if (type === 'endpoint') {
+          const previous = { config: this.store.config, registries: this.store.registries, accessControl: this.store.accessControl };
+          this.store.config = { netbox_url: '', netbox_token: '', ui: 1, id: '', endpoint: '', flows: '0' };
+          this.store.registries = [];
+          this.store.accessControl = { enabled: false, allowed_ips: [], manager_ip: '' };
+          try { await this.store.save(); }
+          catch (error) { Object.assign(this.store, previous); throw error; }
+          return;
+        }
         if (['deleted', 'refreshing'].includes(d.host?.state)) return;
         if (type === 'containers' && d.ContainerID) await this.docker.getContainer(d.ContainerID).remove();
         if (type === 'volumes' && d.name) await this.volumeChange('DELETE', d);

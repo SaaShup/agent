@@ -395,3 +395,25 @@ test('shutdown waits for prune reporting and releases its lock and tracked job t
   release(); await pruning; await closing;
   assert.equal(agent.pruning, false); assert.equal(agent.jobs.size, 0);
 });
+
+
+test('disconnect also resets an injected store without access-control metadata', async t => {
+  const { agent, store } = setup(t);
+  await agent.write('DELETE', 'endpoint');
+  assert.equal(store.config.id, '');
+  assert.equal(store.config.netbox_token, '');
+  assert.deepEqual(store.registries, []);
+});
+
+test('failed disconnect persistence restores the active connection and access rules', async t => {
+  const { agent, store } = setup(t);
+  store.accessControl = { enabled: true, allowed_ips: ['198.51.100.10'], manager_ip: '198.51.100.10' };
+  const previous = { config: store.config, registries: store.registries, accessControl: store.accessControl };
+  const save = store.save;
+  store.save = async () => { throw Error('disk failure'); };
+  try { await assert.rejects(agent.write('DELETE', 'endpoint'), /disk failure/); }
+  finally { store.save = save; }
+  assert.equal(store.config, previous.config);
+  assert.equal(store.registries, previous.registries);
+  assert.equal(store.accessControl, previous.accessControl);
+});
