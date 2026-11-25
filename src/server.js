@@ -11,6 +11,17 @@ import { hostSshKeys } from './host-ssh.js';
 import { AccessControl } from './access-control.js';
 const assets = { '/theme.js': ['theme.js', 'text/javascript'], '/saashup-logo.svg': ['saashup-logo.svg', 'image/svg+xml'], '/vendor/swagger-ui-bundle.js': ['../node_modules/swagger-ui-dist/swagger-ui-bundle.js', 'text/javascript'], '/vendor/swagger-ui.css': ['../node_modules/swagger-ui-dist/swagger-ui.css', 'text/css'], '/doc.css': ['doc.css', 'text/css'], '/vendor/xterm.js': ['../node_modules/@xterm/xterm/lib/xterm.mjs', 'text/javascript'], '/vendor/xterm.css': ['../node_modules/@xterm/xterm/css/xterm.css', 'text/css'], '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/doc': ['doc.html', 'text/html'], '/doc.js': ['doc.js', 'text/javascript'], '/openapi': ['openapi.yml', 'application/yaml'], '/openapi.yml': ['openapi.yml', 'application/yaml'], '/openapi.json': ['openapi.json', 'application/json'] };
 function send(res, status, body, type = 'application/json') { if (res.destroyed || res.writableEnded) return; res.writeHead(status, { 'Content-Type': `${type}; charset=utf-8` }); res.end(type === 'application/json' && !Buffer.isBuffer(body) ? JSON.stringify(body) : body); }
+// Lets peers on the agent's own Docker networks (e.g. a monitoring stack scraping metrics) keep access across a disconnect/re-register cycle, which otherwise wipes the ACL down to just the manager IP.
+async function attachedSubnets(docker) {
+  if (!process.env.HOSTNAME) return [];
+  try {
+    const self = await docker.getContainer(process.env.HOSTNAME).inspect();
+    const ids = new Set(Object.values(self.NetworkSettings?.Networks || {}).map(n => n.NetworkID).filter(Boolean));
+    if (!ids.size) return [];
+    const networks = await docker.listNetworks();
+    return networks.filter(n => ids.has(n.Id)).map(n => n.IPAM?.Config?.[0]?.Subnet).filter(Boolean);
+  } catch { return []; }
+}
 async function body(req) {
   const chunks = []; let size = 0;
   for await (const chunk of req) { size += chunk.length; if (size > 1024 * 1024) throw Object.assign(new Error('Request body too large'), { statusCode: 413 }); chunks.push(chunk); }
@@ -113,7 +124,7 @@ export function createServer(agent, tlsOptions) {
         if (req.method === 'GET' && type === 'endpoint' && url.searchParams.has('url')) {
           const value = process.env.NETBOX_URL || url.searchParams.get('url');
           if (value && !['http:', 'https:'].includes(new URL(value).protocol)) return send(res, 400, { message: 'Management URL must use HTTP or HTTPS' });
-          await access.learn(req);
+          await access.learn(req, await attachedSubnets(agent.docker));
           terminal.recheck();
           Object.assign(agent.store.config, { netbox_url: value, id: url.searchParams.get('id') || '', netbox_token: url.searchParams.get('token') || '', endpoint: url.searchParams.get('endpoint') || '' }); await agent.store.save();
         }

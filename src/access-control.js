@@ -73,12 +73,12 @@ export class AccessControl {
     await this.persist(next);
     return this.status(req);
   }
-  async learn(req) {
+  async learn(req, attachedSubnets = []) {
     const p = this.store.accessControl;
     if (!registration(req)) return;
     const ip = this.address(req);
     if (!ip) return;
-    const next = { ...p, enabled: true, manager_ip: ip, allowed_ips: allowedIps([...new Set([...p.allowed_ips, ip])]) };
+    const next = { ...p, enabled: true, manager_ip: ip, allowed_ips: allowedIps([...new Set([...p.allowed_ips, ip, ...attachedSubnets])]) };
     await this.persist(next);
   }
 }

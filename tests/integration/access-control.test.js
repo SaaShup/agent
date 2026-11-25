@@ -91,6 +91,33 @@ test('registration bootstrap learns only authenticated server peers and preserve
   assert.equal((await f.request()).status, 200);
 });
 
+test('registration also learns the subnets of the Docker networks the agent container is attached to', async t => {
+  const f = await fixture(t);
+  process.env.HOSTNAME = 'self';
+  t.after(() => { delete process.env.HOSTNAME; });
+  f.agent.docker.getContainer = () => ({ inspect: async () => ({ NetworkSettings: { Networks: { monitoring: { NetworkID: 'net1' }, bridge: { NetworkID: 'net2' }, other: { NetworkID: 'net4' } } } }) });
+  f.agent.docker.listNetworks = async () => [{ Id: 'net1', IPAM: { Config: [{ Subnet: '172.20.0.0/16' }] } }, { Id: 'net2', IPAM: { Config: [{}] } }, { Id: 'net3', IPAM: { Config: [{ Subnet: '172.21.0.0/16' }] } }, { Id: 'net4' }];
+  const registration = '/api/engine/endpoint?url=https://manager.example&id=1&token=test&endpoint=https://agent.example';
+  f.setPeer('203.0.113.9');
+  assert.equal((await f.request(registration)).status, 202);
+  assert.deepEqual([...f.store.accessControl.allowed_ips].sort(), ['172.20.0.0/16', '203.0.113.9'].sort());
+});
+
+test('registration tolerates a container with no attached networks or a Docker lookup failure', async t => {
+  const f = await fixture(t);
+  process.env.HOSTNAME = 'self';
+  t.after(() => { delete process.env.HOSTNAME; });
+  f.agent.docker.getContainer = () => ({ inspect: async () => ({}) });
+  const registration = '/api/engine/endpoint?url=https://manager.example&id=1&token=test&endpoint=https://agent.example';
+  f.setPeer('203.0.113.11');
+  assert.equal((await f.request(registration)).status, 202);
+  assert.deepEqual(f.store.accessControl.allowed_ips, ['203.0.113.11']);
+  f.agent.docker.getContainer = () => ({ inspect: async () => { throw Error('daemon unavailable'); } });
+  f.setPeer('203.0.113.12');
+  assert.equal((await f.request(registration)).status, 202);
+  assert.deepEqual(f.store.accessControl.allowed_ips.sort(), ['203.0.113.11', '203.0.113.12']);
+});
+
 test('new restrictions close existing remote terminals and reject blocked WebSocket upgrades', async t => {
   const f = await fixture(t);
   await f.request(undefined, 'PUT', rules(['198.51.100.10']));
