@@ -1,5 +1,17 @@
+import { isIP } from 'node:net';
 const pairs = (obj, key = 'key') => Object.entries(obj || {}).map(([k, value]) => ({ [key]: k, value }));
 const object = (list, key) => Object.fromEntries((Array.isArray(list) ? list : []).map(x => [x[key], x.value]));
+export function networkSubnet(subnet) {
+  if (subnet === undefined) return undefined;
+  if (typeof subnet !== 'string') throw Object.assign(new Error('subnet must be a CIDR range, e.g. 172.30.0.0/16'), { statusCode: 400 });
+  const parts = subnet.trim().split('/');
+  const [address, prefix] = parts;
+  const family = isIP(address);
+  if (!family || parts.length !== 2 || !/^\d+$/.test(prefix) || Number(prefix) > (family === 4 ? 32 : 128)) {
+    throw Object.assign(new Error('subnet must be a valid CIDR range, e.g. 172.30.0.0/16'), { statusCode: 400 });
+  }
+  return `${address}/${Number(prefix)}`;
+}
 export function resourceLimits(d = {}) {
   const limits = {};
   if (d?.memory_limit !== undefined) {
