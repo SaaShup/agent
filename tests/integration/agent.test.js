@@ -32,7 +32,7 @@ async function setup(t, deleteStatus = 200) {
  if(p.endsWith('/stats'))return json({cpu_stats:{cpu_usage:{total_usage:5}}});
  if(p==='/images/json')return json([{Id:'sha256:image',RepoTags:['nginx:alpine'],Size:1048576}]);
  if(p==='/volumes')return json({Volumes:[],Warnings:null});
- if(p==='/networks')return json([{Id:'net',Name:'bridge',Driver:'bridge'}]);
+ if(p==='/networks')return json([{Id:'net',Name:'bridge',Driver:'bridge',IPAM:{Driver:'default',Config:[{Subnet:'172.30.0.0/16'}]}}]);
  if(p==='/networks/create')return json({Id:'net'});
  if(p==='/volumes/create')return json({Name:body.Name});
  if(p==='/images/create'){res.setHeader('content-type','application/json');res.end('{"status":"Digest: sha256:image"}\n');return;}
@@ -80,6 +80,19 @@ test('invalid HTTP limits return 400 before enqueueing or touching the original 
  await assert.rejects(agent.write('POST', 'containers', { name: 'demo', state: 'none', cpu_limit: -1 }), { statusCode: 400 });
  assert.equal(calls.length, 0);
  assert.equal(agent.activeOperations, 0);
+});
+test('invalid HTTP network subnets return 400 before enqueueing or reaching Engine', async t => {
+ const { api, agent, calls } = await setup(t);
+ for (const subnet of ['not-a-cidr', '172.30.0.0/33', 123]) {
+  const before = calls.length;
+  const response = await api('/api/engine/networks', 'POST', { data: { name: 'n', driver: 'bridge', subnet, state: 'creating' } });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).message, /subnet/);
+  assert.equal(agent.jobs.size, 0);
+  assert.equal(calls.length, before);
+ }
+ await assert.rejects(agent.write('POST', 'networks', { name: 'n', driver: 'bridge', subnet: 'not-a-cidr', state: 'creating' }), { statusCode: 400 });
+ assert.equal(calls.length, 0);
 });
 test('API references agree and document optional resource limit units and defaults', async t => {
  const { api } = await setup(t);
@@ -131,7 +144,7 @@ test('registry reads reconcile external image changes and retain saved metadata'
 
 test('HTTP read contracts, assets and documentation use real Engine transport',async t=>{const {api}=await setup(t);for(const route of ['/','/app.js','/doc','/doc.js','/doc.css','/vendor/swagger-ui-bundle.js','/vendor/swagger-ui.css','/openapi','/openapi.json','/info','/system/usage','/api/containers','/api/images','/api/networks','/api/volumes','/api/registries','/metrics']){const r=await api(route);assert.equal(r.status,200,route);assert.equal(r.headers.get('x-content-type-options'),'nosniff');}assert.equal((await(await api('/api/containers')).json())[0].Name,'/demo');assert.equal((await(await api('/info')).json()).docker.Version,'29.5.2');assert.deepEqual((await(await api('/api/volumes')).json()).Volumes,[]);assert.equal((await(await api('/system/usage')).json()).images.size,0);});
 test('asynchronous operations acknowledge and report NetBox callbacks, journals, authentication',async t=>{const {api,agent,calls,callbacks}=await setup(t);const data={id:7,name:'demo',state:'none',image:{name:'nginx',version:'alpine'}};const r=await api('/api/engine/containers','POST',{data});assert.equal(r.status,202);assert.deepEqual(await r.json(),{data});await Promise.all(agent.jobs);assert.equal(calls.find(x=>x.path==='/containers/create').body.Image,'nginx:alpine');const cb=callbacks.find(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/containers/');assert.equal(cb.body[0].image.ImageID,'sha256:image');assert.equal(cb.body[0].state,'created');assert.equal(cb.auth,'Bearer ntb_test');assert.equal(callbacks.find(x=>x.url==='/api/extras/journal-entries/').body.kind,'success');});
-test('all container operations and resource lifecycles reach Engine endpoints',async t=>{const {agent,calls,callbacks}=await setup(t);for(const operation of ['start','stop','restart','kill','pause','unpause','rename','none'])await agent.write('PUT','containers',{id:7,ContainerID:'abc',name:operation==='rename'?'renamed':'demo',operation,restart_policy:'always'});for(const operation of ['start','stop','restart','kill','pause','unpause','rename','update'])assert.ok(calls.some(x=>x.path===`/containers/abc/${operation}`),operation);await agent.write('POST','networks',{state:'creating',name:'n',driver:'bridge'});await agent.write('POST','volumes',{id:3,name:'vv',driver:'local'});assert.ok(calls.some(x=>x.path==='/volumes/create'&&x.body.Name==='vv'));assert.ok(callbacks.some(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/volumes/'&&x.body[0].id===3&&x.body[0].state==='created'));await agent.write('POST','images',{id:1,name:'nginx',version:'alpine',size:0,ImageID:null});for(const [type,d] of [['containers',{ContainerID:'abc'}],['images',{ImageID:'sha256:image'}],['volumes',{name:'vv'}],['networks',{name:'n'}]])await agent.write('DELETE',type,d);assert.ok(calls.some(x=>x.path==='/images/create'));assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/images/sha256:image'));});
+test('all container operations and resource lifecycles reach Engine endpoints',async t=>{const {agent,calls,callbacks}=await setup(t);for(const operation of ['start','stop','restart','kill','pause','unpause','rename','none'])await agent.write('PUT','containers',{id:7,ContainerID:'abc',name:operation==='rename'?'renamed':'demo',operation,restart_policy:'always'});for(const operation of ['start','stop','restart','kill','pause','unpause','rename','update'])assert.ok(calls.some(x=>x.path===`/containers/abc/${operation}`),operation);await agent.write('POST','networks',{state:'creating',name:'n',driver:'bridge'});assert.ok(calls.some(x=>x.path==='/networks/create'&&x.body.Name==='n'&&x.body.IPAM===undefined));await agent.write('POST','networks',{state:'creating',name:'n2',driver:'bridge',subnet:'172.30.0.0/16'});assert.ok(calls.some(x=>x.path==='/networks/create'&&x.body.Name==='n2'&&x.body.IPAM.Config[0].Subnet==='172.30.0.0/16'&&x.body.EnableIPv6===undefined));await agent.write('POST','networks',{state:'creating',name:'n3',driver:'bridge',subnet:'fd00:1::/64'});assert.ok(calls.some(x=>x.path==='/networks/create'&&x.body.Name==='n3'&&x.body.IPAM.Config[0].Subnet==='fd00:1::/64'&&x.body.EnableIPv6===true));await agent.write('POST','volumes',{id:3,name:'vv',driver:'local'});assert.ok(calls.some(x=>x.path==='/volumes/create'&&x.body.Name==='vv'));assert.ok(callbacks.some(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/volumes/'&&x.body[0].id===3&&x.body[0].state==='created'));await agent.write('POST','images',{id:1,name:'nginx',version:'alpine',size:0,ImageID:null});for(const [type,d] of [['containers',{ContainerID:'abc'}],['images',{ImageID:'sha256:image'}],['volumes',{name:'vv'}],['networks',{name:'n'}]])await agent.write('DELETE',type,d);assert.ok(calls.some(x=>x.path==='/images/create'));assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/images/sha256:image'));});
 test('a volume creation order for a volume NetBox already marked created is a no-op',async t=>{const {agent,calls,callbacks}=await setup(t);await agent.write('POST','volumes',{id:4,name:'vv2',driver:'local',state:'created'});assert.ok(!calls.some(x=>x.path==='/volumes/create'));assert.ok(!callbacks.some(x=>x.method==='PATCH'&&x.url==='/api/plugins/docker/volumes/'));});
 test('container recreation preserves settings and rolls back a failed replacement',async t=>{const {agent,calls,docker}=await setup(t);await agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'demo',operation:'recreate',image:{ImageID:'sha256:image'},env:[{var_name:'A',value:"a'b"}],network_settings:[]});const created=calls.find(x=>x.path==='/containers/create');assert.deepEqual(created.body.Env,["A=a'b"]);assert.ok(calls.some(x=>x.method==='DELETE'&&x.path==='/containers/abc'));docker.createContainer=async()=>{throw Error('create failed')};await assert.rejects(agent.write('PUT','containers',{id:7,name:'demo',ContainerID:'abc',operation:'recreate',image:{ImageID:'sha256:image'}}),/create failed/);assert.ok(calls.filter(x=>x.path==='/containers/abc/rename').some(x=>x.query==='?name=demo'));});
 test('exec, logs and stats retain the legacy response envelopes',async t=>{const {api}=await setup(t);const result=await(await api('/api/engine/containers/abc/exec','PUT',{cmd:['echo','hello']})).json();assert.ok(result.stdout.includes('hello'));assert.equal(await(await api('/api/engine/containers/abc/logs')).text(),'hello\n');assert.equal((await(await api('/api/engine/containers/abc/stats')).json()).cpu_stats.cpu_usage.total_usage,5);assert.equal((await api('/api/engine/containers/abc/exec','PUT',{cmd:'whoami'})).status,400);});
@@ -148,18 +161,18 @@ test('network discovery maps the Docker null driver to the legacy None callback 
   { Id: 'none-id', Name: 'none', Driver: 'null' },
   { Id: 'null-id', Name: 'null-driver', Driver: null },
   { Id: 'missing-id', Name: 'missing-driver' },
-  { Id: 'bridge-id', Name: 'bridge', Driver: 'bridge' },
+  { Id: 'bridge-id', Name: 'bridge', Driver: 'bridge', IPAM: { Driver: 'default', Config: [{ Subnet: '172.30.0.0/16' }] } },
   { Id: 'host-id', Name: 'host', Driver: 'host' },
  ];
  assert.equal((await api('/api/engine/networks')).status, 202);
  await Promise.all(agent.jobs);
  const records = callbacks.filter(c => c.method === 'POST' && c.url === '/api/plugins/docker/networks/').map(c => c.body);
  assert.deepEqual(records, [
-  { host: 9, name: 'none', driver: 'None', NetworkID: 'none-id', state: 'created' },
-  { host: 9, name: 'null-driver', driver: 'None', NetworkID: 'null-id', state: 'created' },
-  { host: 9, name: 'missing-driver', driver: 'None', NetworkID: 'missing-id', state: 'created' },
-  { host: 9, name: 'bridge', driver: 'bridge', NetworkID: 'bridge-id', state: 'created' },
-  { host: 9, name: 'host', driver: 'host', NetworkID: 'host-id', state: 'created' },
+  { host: 9, name: 'none', driver: 'None', NetworkID: 'none-id', subnet: null, state: 'created' },
+  { host: 9, name: 'null-driver', driver: 'None', NetworkID: 'null-id', subnet: null, state: 'created' },
+  { host: 9, name: 'missing-driver', driver: 'None', NetworkID: 'missing-id', subnet: null, state: 'created' },
+  { host: 9, name: 'bridge', driver: 'bridge', NetworkID: 'bridge-id', subnet: '172.30.0.0/16', state: 'created' },
+  { host: 9, name: 'host', driver: 'host', NetworkID: 'host-id', subnet: null, state: 'created' },
  ]);
 });
 

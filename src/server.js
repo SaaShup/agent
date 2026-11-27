@@ -4,7 +4,7 @@ import { randomBytes, X509Certificate } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { authenticated, sameOrigin } from './auth.js';
 import { collect } from './docker.js';
-import { resourceLimits } from './mapping.js';
+import { networkSubnet, resourceLimits } from './mapping.js';
 import { metrics } from './metrics.js';
 import { terminals } from './terminal.js';
 import { hostSshKeys } from './host-ssh.js';
@@ -129,6 +129,7 @@ export function createServer(agent, tlsOptions) {
           Object.assign(agent.store.config, { netbox_url: value, id: url.searchParams.get('id') || '', netbox_token: url.searchParams.get('token') || '', endpoint: url.searchParams.get('endpoint') || '' }); await agent.store.save();
         }
         if (type === 'containers' && (req.method === 'POST' || (req.method === 'PUT' && input.data?.operation === 'recreate'))) resourceLimits(input.data);
+        if (type === 'networks' && req.method === 'POST') networkSubnet(input.data?.subnet);
         if (req.method === 'PUT' && type === 'containers' && input.data?.operation === 'recreate') await agent.recreationTarget(input.data.ContainerID);
         // Volume errors must reach the caller before a volume can be attached.
         if (type === 'volumes' && req.method !== 'GET') { await agent.write(req.method, type, input.data); return send(res, 202, input); }

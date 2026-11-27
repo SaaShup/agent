@@ -163,6 +163,7 @@ function resourceCard(type, r) {
   if (type === 'containers') return containerCard(r);
   const card = node('article', undefined, 'card'); const name = r.Name || r.name || r.RepoTags?.[0] || r.Id;
   card.append(node('h3', name), node('p', r.Driver || r.serveraddress || `${Math.round((r.Size || 0)/1048576)} MB`, 'meta'));
+  if (type === 'networks' && r.IPAM?.Config?.[0]?.Subnet) card.append(node('p', `Subnet: ${r.IPAM.Config[0].Subnet}`, 'meta'));
   if (type === 'images') {
     const references = [...(r.RepoTags || []), ...(r.RepoDigests || [])].filter(ref => !ref.startsWith('<none>'));
     const registries = [...new Set(references.map(ref => {
@@ -253,7 +254,7 @@ let editType, editMethod;
 function edit(type, method = 'POST', data) {
   if (type === 'containers' && method === 'PUT' && isAgent({ Id: data.ContainerID })) throw Error('The agent cannot recreate its own container');
   editType = type; editMethod = method; $('#resource-title').textContent = `${method === 'PUT' ? (type === 'volumes' ? 'Update' : 'Recreate') : type === 'images' ? 'Pull' : 'Create'} ${type}`;
-  const templates = { containers: {name:'my-container',state:'none',memory_limit:0,cpu_limit:0,image:{name:'nginx',version:'alpine'}}, images:{name:'nginx',version:'alpine',size:0,ImageID:null}, networks:{name:'my-network',driver:'bridge',state:'creating'}, volumes:{name:'my-volume',driver:'local',max_size:0} };
+  const templates = { containers: {name:'my-container',state:'none',memory_limit:0,cpu_limit:0,image:{name:'nginx',version:'alpine'}}, images:{name:'nginx',version:'alpine',size:0,ImageID:null}, networks:{name:'my-network',driver:'bridge',subnet:'172.30.0.0/16',state:'creating'}, volumes:{name:'my-volume',driver:'local',max_size:0} };
   $('#volume-limit-label').hidden = type !== 'volumes';
   $('#volume-name-label').hidden = type !== 'volumes';
   $('#volume-type-label').hidden = type !== 'volumes';

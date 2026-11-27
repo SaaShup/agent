@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { containerRecord, createOptions, imageRecord, resourceLimits } from '../../src/mapping.js';
+import { containerRecord, createOptions, imageRecord, networkSubnet, resourceLimits } from '../../src/mapping.js';
 import { usage, demux } from '../../src/docker.js';
 import { metrics } from '../../src/metrics.js';
 const c = { Id:'abc',Name:'/demo',Image:'sha256:image',Config:{Hostname:'host',Env:['A=x=y','EMPTY='],Labels:{'a"':'<script>'},Cmd:['sh']},State:{Status:'exited',ExitCode:3},HostConfig:{CapAdd:['CAP_NET_ADMIN'],RestartPolicy:{Name:''},PortBindings:{'80/tcp':[{HostPort:'8080'}]},LogConfig:{Type:'local',Config:{'max-size':'10m'}},Devices:[{PathInContainer:'/dev/a',PathOnHost:'/dev/b'}],Sysctls:{'net.ipv4.ip_forward':'1'}},NetworkSettings:{Networks:{bridge:{}}},Mounts:[{Type:'volume',Name:'data',Destination:'/data',RW:false},{Type:'bind',Source:'/host',Destination:'/mount',RW:true}] };
@@ -34,6 +34,18 @@ test('invalid limits reject nonnumeric, negative, undersized and unsafe values',
  }
  for (const cpu_limit of [-1, '1', null, true, {}, NaN, Infinity, 1e10, 1e-12]) {
   assert.throws(() => resourceLimits({ cpu_limit }), { statusCode: 400, message: /cpu_limit/ });
+ }
+});
+test('network subnet accepts valid IPv4/IPv6 CIDR ranges, is optional, and rejects malformed or out-of-range input', () => {
+ assert.equal(networkSubnet(undefined), undefined);
+ assert.equal(networkSubnet('172.30.0.0/16'), '172.30.0.0/16');
+ assert.equal(networkSubnet(' 172.30.0.0/16 '), '172.30.0.0/16');
+ assert.equal(networkSubnet('10.0.0.0/8'), '10.0.0.0/8');
+ assert.equal(networkSubnet('8.8.8.0/24'), '8.8.8.0/24');
+ assert.equal(networkSubnet('2001:db8::/32'), '2001:db8::/32');
+ assert.equal(networkSubnet('fd00::/64'), 'fd00::/64');
+ for (const subnet of [123, null, {}, [], '172.30.0.0', '172.30.0.0/33', '172.30.0.0/-1', 'not-an-ip/16', 'fd00::/129', '172.30.0.0/16/8', '']) {
+  assert.throws(() => networkSubnet(subnet), { statusCode: 400, message: /subnet/ });
  }
 });
 test('inspection mapping preserves nested plugin fields and values',()=>{

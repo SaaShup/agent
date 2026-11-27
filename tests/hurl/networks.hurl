@@ -4,14 +4,14 @@
 # Note: unlike containers/volumes (state "none"), the network create path is
 # gated on state == "creating".
 
-# === Create the network ===================================================
+# === Create the network, setting its IP range =============================
 POST {{host}}/api/engine/networks
 ```json
-{ "data": { "id": 1, "name": "compat-net", "driver": "bridge", "state": "creating" } }
+{ "data": { "id": 1, "name": "compat-net", "driver": "bridge", "subnet": "172.30.0.0/16", "state": "creating" } }
 ```
 HTTP 202
 
-# === Poll until it exists, with the expected driver =======================
+# === Poll until it exists, with the expected driver and subnet ============
 GET {{host}}/api/networks
 [Options]
 retry: 30
@@ -20,6 +20,7 @@ HTTP 200
 [Asserts]
 jsonpath "$[*].Name" contains "compat-net"
 jsonpath "$[?(@.Name=='compat-net')].Driver" contains "bridge"
+jsonpath "$[?(@.Name=='compat-net')].IPAM.Config[0].Subnet" contains "172.30.0.0/16"
 
 # === Delete it ============================================================
 DELETE {{host}}/api/engine/networks

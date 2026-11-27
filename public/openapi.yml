@@ -2268,6 +2268,10 @@
                   "none"
                 ]
               },
+              "subnet": {
+                "type": "string",
+                "description": "IP range (CIDR) to assign to the network, e.g. 172.30.0.0/16. Optional; left unset lets Docker pick one."
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -3527,7 +3531,20 @@
                 },
                 "Config": {
                   "type": "array",
-                  "items": {}
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "Subnet": {
+                        "type": "string"
+                      },
+                      "IPRange": {
+                        "type": "string"
+                      },
+                      "Gateway": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
               },
               "required": [
